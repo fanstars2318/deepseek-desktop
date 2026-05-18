@@ -1,0 +1,73 @@
+<Window x:Class="DeepSeekBrowser.Views.McpServerEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeepSeek · MCP 服务器"
+        Height="600" Width="520"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Style="{StaticResource DsWindow}">
+  <ScrollViewer Style="{StaticResource DsScrollViewer}">
+    <Grid Margin="{StaticResource DsDialogMargin}">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+      </Grid.RowDefinitions>
+
+      <StackPanel Grid.Row="0" Margin="0,0,0,18">
+        <TextBlock Text="编辑 MCP 服务器" Style="{StaticResource DsPageTitle}"/>
+        <TextBlock Style="{StaticResource DsHint}" Margin="0,0,0,0" TextWrapping="Wrap"
+                   Text="stdio 为本机进程；HTTP 为远程服务（须先启动）。"/>
+      </StackPanel>
+
+      <TextBlock Grid.Row="1" Text="名称" Style="{StaticResource DsCaption}"/>
+      <TextBox x:Name="NameBox" Grid.Row="2" Style="{StaticResource DsTextBox}" Margin="0,0,0,14"/>
+
+      <TextBlock Grid.Row="3" Text="通信方式" Style="{StaticResource DsCaption}"/>
+      <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,0,0,14">
+        <ToggleButton x:Name="StdioModeBtn" Content="stdio（本机）"
+                      Style="{StaticResource DsSegmentToggle}" Click="TransportMode_Click"/>
+        <ToggleButton x:Name="RemoteModeBtn" Content="HTTP（远程）" Margin="8,0,0,0"
+                      Style="{StaticResource DsSegmentToggle}" Click="TransportMode_Click"/>
+      </StackPanel>
+
+      <StackPanel x:Name="RemotePanel" Grid.Row="5" Visibility="Collapsed" Margin="0,0,0,14">
+        <TextBlock Text="服务地址 (URL)" Style="{StaticResource DsCaption}"/>
+        <TextBox x:Name="UrlBox" Style="{StaticResource DsTextBox}" Margin="0,0,0,8"/>
+        <TextBlock Style="{StaticResource DsHint}" TextWrapping="Wrap"
+                   Text="例如 http://127.0.0.1:8081/mcp，须先启动 mcp-for-unity 并打开 Unity。"/>
+      </StackPanel>
+
+      <StackPanel x:Name="StdioPanel" Grid.Row="5" Margin="0,0,0,14">
+        <TextBlock Text="启动命令 (command)" Style="{StaticResource DsCaption}"/>
+        <TextBox x:Name="CommandBox" Style="{StaticResource DsTextBox}" Margin="0,0,0,14"/>
+
+        <TextBlock Text="参数 args（每行一个）" Style="{StaticResource DsCaption}"/>
+        <TextBox x:Name="ArgsBox" Style="{StaticResource DsTextArea}" Margin="0,0,0,14"/>
+
+        <TextBlock Text="工作目录（可选）" Style="{StaticResource DsCaption}"/>
+        <TextBox x:Name="WorkDirBox" Style="{StaticResource DsTextBox}" Margin="0,0,0,14"/>
+
+        <TextBlock Text="环境变量（可选，每行 KEY=VALUE）" Style="{StaticResource DsCaption}"/>
+        <TextBox x:Name="EnvBox" Style="{StaticResource DsTextArea}" MinHeight="72"/>
+      </StackPanel>
+
+      <Border Grid.Row="6" Style="{StaticResource DsInfoBanner}" Margin="0,0,0,14">
+        <TextBlock Style="{StaticResource DsInfoBannerText}"
+                   Text="安全提示：仅连接可信 MCP；stdio 拥有本机权限，远程服务可能外传数据。"/>
+      </Border>
+
+      <Border Grid.Row="7" Style="{StaticResource DsDialogFooter}" Margin="0">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button Content="取消" IsCancel="True" Style="{StaticResource DsGhostButton}" MinWidth="80" Margin="0,0,10,0"/>
+          <Button Content="保存" IsDefault="True" Click="Save_Click" Style="{StaticResource DsPrimaryButton}"/>
+        </StackPanel>
+      </Border>
+    </Grid>
+  </ScrollViewer>
+</Window>

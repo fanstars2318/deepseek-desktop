@@ -1,0 +1,163 @@
+<Window x:Class="DeepSeekBrowser.Views.DesktopSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeepSeek 设置"
+        Height="760" Width="580"
+        MinHeight="520" MinWidth="540"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        Style="{StaticResource DsWindow}">
+  <DockPanel Margin="{StaticResource DsDialogMargin}" LastChildFill="True">
+
+    <Border DockPanel.Dock="Bottom" Style="{StaticResource DsDialogFooter}" Margin="0,12,0,0">
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button Content="取消" Click="Cancel_Click" Style="{StaticResource DsGhostButton}" MinWidth="80" Margin="0,0,10,0"/>
+        <Button Content="保存" Click="Save_Click" Style="{StaticResource DsPrimaryButton}"/>
+      </StackPanel>
+    </Border>
+
+    <Button DockPanel.Dock="Bottom"
+            x:Name="AddMcpButton"
+            Click="AddMcp_Click"
+            Style="{StaticResource DsAddMcpCard}"
+            Margin="0,10,0,0"
+            MinHeight="48"/>
+
+    <ScrollViewer Style="{StaticResource DsScrollViewer}"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled"
+                  Padding="0,0,4,0">
+      <StackPanel>
+        <TextBlock Text="DeepSeek 设置" Style="{StaticResource DsPageTitle}"/>
+        <TextBlock Style="{StaticResource DsPageSubtitle}"
+                   Text="本地 Chat2API、Agent 对话存储与 MCP 工具"/>
+
+        <TextBlock Text="Agent 对话存储" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,10"/>
+        <Border Style="{StaticResource DsCard}" Margin="{StaticResource DsSectionGap}">
+          <StackPanel>
+            <TextBlock x:Name="AgentStorageStatsText" Style="{StaticResource DsHint}" Margin="0,0,0,12"/>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <StackPanel Grid.Column="0">
+                <TextBlock Text="自动删除超过" Style="{StaticResource DsCaption}"/>
+                <ComboBox x:Name="AgentRetentionCombo" Style="{StaticResource DsComboBox}"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Text="存储上限 (GB，0=不限)" Style="{StaticResource DsCaption}"/>
+                <TextBox x:Name="AgentMaxGbBox" Style="{StaticResource DsTextBox}"/>
+              </StackPanel>
+            </Grid>
+            <CheckBox x:Name="AgentAutoCleanupCheck" Content="保存与启动时自动清理（按上述规则）"
+                      Margin="0,14,0,0" Style="{StaticResource DsCheckBox}"/>
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+              <Button Content="立即清理" Click="AgentCleanupNow_Click" Style="{StaticResource DsGhostButton}" MinWidth="88" Margin="0,0,8,0"/>
+              <Button Content="打开存储目录" Click="OpenAgentStorage_Click" Style="{StaticResource DsGhostButton}" MinWidth="108"/>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <TextBlock Text="Chat2API 与 Agent" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,10"/>
+        <Border Style="{StaticResource DsCard}" Margin="{StaticResource DsSectionGap}">
+          <Grid>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="16"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Row="0" Grid.Column="0">
+              <TextBlock Text="本地 API" Style="{StaticResource DsCaption}"/>
+              <TextBlock x:Name="LocalApiUrlText" Style="{StaticResource DsLink}" Margin="0,0,0,0"/>
+            </StackPanel>
+            <StackPanel Grid.Row="0" Grid.Column="2">
+              <TextBlock Text="网页登录" Style="{StaticResource DsCaption}"/>
+              <TextBlock x:Name="WebTokenStatus" Style="{StaticResource DsBody}" Margin="0,0,0,0"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,16,0,0">
+              <TextBlock Text="本地 API 端口" Style="{StaticResource DsCaption}"/>
+              <TextBox x:Name="PortBox" Style="{StaticResource DsTextBox}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,16,0,0">
+              <TextBlock Text="最大 Agent 步数" Style="{StaticResource DsCaption}"/>
+              <TextBox x:Name="MaxStepsBox" Style="{StaticResource DsTextBox}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,16,0,0">
+              <TextBlock Text="默认 Agent 策略" Style="{StaticResource DsCaption}"/>
+              <ComboBox x:Name="AgentStrategyCombo" Style="{StaticResource DsComboBox}"/>
+            </StackPanel>
+            <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,16,0,0">
+              <TextBlock Text="子 Agent 最大步数" Style="{StaticResource DsCaption}"/>
+              <TextBox x:Name="MaxSubStepsBox" Style="{StaticResource DsTextBox}"/>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <TextBlock Text="Qwen Code Core（C# 移植）" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,10"/>
+        <Border Style="{StaticResource DsCard}" Margin="{StaticResource DsSectionGap}">
+          <StackPanel>
+            <TextBlock x:Name="QwenPortInfoText" Style="{StaticResource DsHint}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+            <CheckBox x:Name="QwenBuiltinCheck" Content="启用 Core 内置工具（read/write/edit/glob/grep/shell）"
+                      Style="{StaticResource DsCheckBox}"/>
+            <TextBlock Text="工作区根目录（留空 = 用户主目录）" Style="{StaticResource DsCaption}" Margin="0,14,0,0"/>
+            <TextBox x:Name="QwenWorkspaceBox" Style="{StaticResource DsTextBox}"/>
+            <Grid Margin="0,14,0,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <StackPanel Grid.Column="0">
+                <TextBlock Text="工具审批" Style="{StaticResource DsCaption}"/>
+                <ComboBox x:Name="QwenApprovalCombo" Style="{StaticResource DsComboBox}"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <CheckBox x:Name="QwenAllowShellCheck" Content="允许 Shell 命令"
+                          Style="{StaticResource DsCheckBox}" Margin="0,20,0,0"/>
+                <CheckBox x:Name="QwenWebFetchCheck" Content="允许 web_fetch 拉取网页"
+                          Style="{StaticResource DsCheckBox}" Margin="0,8,0,0"/>
+                <CheckBox x:Name="QwenAdaptiveTokensCheck" Content="输出截断时自动续写（Qwen Code 扩容）"
+                          Style="{StaticResource DsCheckBox}" Margin="0,8,0,0"/>
+              </StackPanel>
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <Grid Margin="0,4,0,10">
+          <TextBlock Text="MCP 服务器" Style="{StaticResource DsSectionTitle}" VerticalAlignment="Center"/>
+          <Button Content="连接全部已启用" Click="ConnectAll_Click" HorizontalAlignment="Right"
+                  Style="{StaticResource DsAccentGhostButton}" Padding="12,0"/>
+        </Grid>
+        <Grid Margin="0,0,0,12">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <TextBlock Grid.Column="0" Style="{StaticResource DsCaption}" Text="配置文件" VerticalAlignment="Center" Margin="0,0,8,0"/>
+          <TextBlock Grid.Column="1" x:Name="ConfigPathText" Style="{StaticResource DsBody}" FontSize="11"
+                     VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+          <Button Grid.Column="2" Content="复制" Click="CopyConfigPath_Click" Style="{StaticResource DsGhostButton}"
+                  Margin="8,0,0,0" MinWidth="48" Padding="8,0" MinHeight="28"/>
+          <Button Grid.Column="3" Content="打开" Click="OpenConfig_Click" Style="{StaticResource DsGhostButton}"
+                  Margin="6,0,0,0" MinWidth="48" Padding="8,0" MinHeight="28"/>
+        </Grid>
+
+        <Border Style="{StaticResource DsCard}" Padding="8,8,4,8" MinHeight="120">
+          <StackPanel x:Name="McpList"/>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+  </DockPanel>
+</Window>
