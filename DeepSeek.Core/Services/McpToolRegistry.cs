@@ -4,7 +4,7 @@ using DeepSeekBrowser.Models;
 namespace DeepSeekBrowser.Services;
 
 /// <summary>
-/// Qwen ReAct 风格 MCP 工具注册表（参考 Qwen-main/examples/react_prompt.md、react_demo.py）。
+/// DeepSeek-TUI / ReAct 风格 MCP 工具注册表。
 /// </summary>
 public sealed class McpToolRegistry
 {

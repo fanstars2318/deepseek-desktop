@@ -2,7 +2,7 @@
 
 将 [DeepSeek 网页版](https://chat.deepseek.com) 封装为 Windows 桌面应用：**普通对话**嵌入官网；**Agent 工作台**与 **设置 / API 管理** 在应用内完成，核心逻辑集中在 `DeepSeek.Core`（DeepSeek-TUI 运行时 + 内嵌 Chat2API 管理台 + 网页会话桥）。
 
-> **免责声明：** 本仓库为第三方独立开源项目，与 DeepSeek、Qwen Code（@qwen-code/qwen-code）及任何独立 Chat2API 开源项目**无隶属、无授权、无背书关系**。使用本软件须自行遵守各第三方服务条款与适用法律。详见 **[DISCLAIMER.md](./DISCLAIMER.md)**。
+> **免责声明：** 本仓库为第三方独立开源项目，与 DeepSeek 官方及任何独立 Chat2API 开源项目**无隶属、无授权、无背书关系**。Agent 引擎采用社区项目 [DeepSeek-TUI](third-party/DeepSeek-TUI)（submodule），亦非 DeepSeek 官方产品。详见 **[DISCLAIMER.md](./DISCLAIMER.md)**。
 
 ---
 
@@ -16,7 +16,7 @@
 | **设置** | Agent 内嵌设置页：MCP、工作区、TUI、Chat2API 摘要、登录态检测 |
 | **DeepSeek.Core** | 共享库：配置、Chat2API 兼容层、MCP、TUI 客户端、工作模式等（`DeepSeek.Core.Tests` 回归） |
 | **MCP** | 多 MCP 服务接入，与内置工具统一调度 |
-| **Skills / Subagents** | 兼容 `.qwen/skills`、`~/.qwen/skills`、`.qwen/agents` |
+| **Skills** | 兼容 DeepSeek-TUI 目录 `~/.deepseek/skills` 及工作区 `.deepseek/skills` |
 | **外部 OpenAI API（可选）** | 在 API 管理或设置中手动开启；默认关闭 |
 | **工作模式** | 普通对话 / Agent / 计划模式等，网页悬浮按钮与桌面状态同步 |
 
@@ -133,7 +133,7 @@ Agent 引擎来自 [`third-party/DeepSeek-TUI`](third-party/DeepSeek-TUI)（subm
 | `/chat` | 返回普通网页对话 |
 | `/skills` | 列出 Skills |
 | `/skills <名> [任务]` | 加载 Skill 并执行 |
-| `/agents` | 列出 Subagents |
+| `/agents` | 列出 Subagents（DeepSeek-TUI） |
 | `/agents <名> <任务>` | 委派 Subagent |
 | `!<命令>` | 直接 Shell（需审批） |
 | `@路径` | 注入工作区文件 |
@@ -204,8 +204,8 @@ deepseek-desktop/
 **API 管理显示「未登录」？**  
 先在普通对话完成网页登录，或在 API 管理页点击「打开主窗口登录」。
 
-**与 npm 版 Qwen Code 的关系？**  
-本仓库在 C# 中实现/移植部分 Core 能力，由 DeepSeek 桌面 Agent 调度；默认不启动 `qwen` CLI 子进程。
+**Agent 使用什么引擎？**  
+Agent 由 **DeepSeek-TUI** 子进程驱动（`deepseek serve --http`，默认 `:7878`）。LLM 请求经桌面内嵌通道 `internal://desktop/v1` 转发到已登录的 DeepSeek 网页会话；配置同步至 `~/.deepseek/config.toml`。
 
 **Git 推送失败？**  
 可配置代理，例如：`git -c http.proxy=http://127.0.0.1:7890 push`。
@@ -215,7 +215,9 @@ deepseek-desktop/
 ## 相关链接
 
 - 仓库：https://github.com/fanstars2318/deepseek-desktop  
-- [Qwen Code 架构](https://qwenlm.github.io/qwen-code-docs/zh/developers/architecture/)  
+- [DeepSeek-TUI（Agent 引擎 submodule）](https://github.com/Hmbown/DeepSeek-TUI)  
+- [DeepSeek-TUI 文档](https://deepseek-tui.com/zh/docs)  
+- [DeepSeek 官方 API 文档](https://api-docs.deepseek.com/zh-cn/)  
 
 ---
 
