@@ -41,7 +41,6 @@ public partial class DesktopSettingsWindow : System.Windows.Window
         WebTokenStatus.Foreground = string.IsNullOrWhiteSpace(config.WebUserToken)
             ? (Brush)FindResource("DsDanger")
             : (Brush)FindResource("DsSuccess");
-        BindAgentStorageSettings(config);
         BindDeepSeekTuiSettings(config);
         Loaded += async (_, _) => await RefreshDeepSeekTuiStatusAsync(config);
         BindChat2ApiSummary(config);
@@ -56,20 +55,9 @@ public partial class DesktopSettingsWindow : System.Windows.Window
         var mode = string.Equals(config.Chat2ApiSessionMode, "multi", StringComparison.OrdinalIgnoreCase)
             ? "多轮" : "单轮";
         Chat2ApiSummaryText.Text =
-            $"客户端模型: {Chat2ApiCompat.DefaultModel} · 会话 {mode} · {maps} 条别名 · API Key {keys} 个" +
-            (config.EnableLocalApiKeyAuth ? "（认证已启用）" : "");
-    }
-
-    private void ManageChat2Api_Click(object sender, RoutedEventArgs e)
-    {
-        if (Config is null) Config = new AppConfig();
-        var dlg = new Chat2ApiManagementWindow(Config, c =>
-        {
-            Config = c;
-            BindChat2ApiSummary(c);
-        })
-        { Owner = this };
-        dlg.ShowDialog();
+            $"内嵌 Chat2API · {Chat2ApiCompat.DefaultModel} · 会话 {mode} · {maps} 条模型别名" +
+            (config.EnableLocalApiKeyAuth ? " · API Key 认证已启用" : "") +
+            " · 网页登录后自动同步 Token";
     }
 
     private void BindDeepSeekTuiSettings(AppConfig config)
@@ -85,7 +73,7 @@ public partial class DesktopSettingsWindow : System.Windows.Window
         TuiPortInfoText.Text =
             "DeepSeek-TUI Agent 引擎（内置）· Plan / Agent / YOLO\n" +
             $"Runtime API：127.0.0.1:{port} · 二进制：{bundled} · 源码：{sourceHint}\n" +
-            "LLM：Chat2API（网页 Token）→ ~/.deepseek/config.toml · 非 api.deepseek.com 直连\n" +
+            "LLM：内嵌 Chat2API（网页 Token）→ ~/.deepseek/config.toml\n" +
             "模式：/react → Agent · /plan → Plan";
         TuiSourcePathBox.Text = config.DeepSeekTuiSourcePath ?? "";
         AgentWorkspaceBox.Text = config.AgentWorkspaceRoot ?? "";
@@ -103,66 +91,6 @@ public partial class DesktopSettingsWindow : System.Windows.Window
             "never" => 3,
             _ => 0
         };
-    }
-
-    private void BindAgentStorageSettings(AppConfig config)
-    {
-        var store = new AgentSessionStore();
-        var (bytes, count) = store.GetStats();
-        AgentStorageStatsText.Text =
-            $"当前 {count} 条对话，约 {FormatBytes(bytes)}。目录：{store.StorageDirectory}";
-
-        AgentRetentionCombo.Items.Clear();
-        AgentRetentionCombo.Items.Add("不自动删除");
-        AgentRetentionCombo.Items.Add("7 天");
-        AgentRetentionCombo.Items.Add("30 天");
-        AgentRetentionCombo.Items.Add("90 天");
-        AgentRetentionCombo.Items.Add("180 天");
-        AgentRetentionCombo.SelectedIndex = config.AgentSessionRetentionDays switch
-        {
-            0 => 0,
-            7 => 1,
-            30 => 2,
-            90 => 3,
-            180 => 4,
-            _ => 2
-        };
-        AgentMaxGbBox.Text = config.AgentSessionMaxStorageGb.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-        AgentAutoCleanupCheck.IsChecked = config.AgentSessionAutoCleanup;
-    }
-
-    private static string FormatBytes(long bytes)
-    {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return (bytes / 1024.0).ToString("0.#") + " KB";
-        if (bytes < 1024L * 1024 * 1024) return (bytes / (1024.0 * 1024)).ToString("0.##") + " MB";
-        return (bytes / (1024.0 * 1024 * 1024)).ToString("0.##") + " GB";
-    }
-
-    private async void AgentCleanupNow_Click(object sender, RoutedEventArgs e)
-    {
-        if (Config is null) return;
-        var store = new AgentSessionStore();
-        var deleted = store.ApplyRetentionPolicy(Config);
-        BindAgentStorageSettings(Config);
-        DsMessageDialog.Info(
-            this,
-            deleted.Count > 0
-                ? $"已按规则清理 {deleted.Count} 条最旧或超期的对话。"
-                : "无需清理，或未启用保留/容量规则。",
-            "Agent 存储");
-        await Task.CompletedTask;
-    }
-
-    private void OpenAgentStorage_Click(object sender, RoutedEventArgs e)
-    {
-        var dir = new AgentSessionStore().StorageDirectory;
-        Directory.CreateDirectory(dir);
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = dir,
-            UseShellExecute = true
-        });
     }
 
     private void RefreshMcpList()
@@ -453,18 +381,6 @@ public partial class DesktopSettingsWindow : System.Windows.Window
         Config.DefaultAgentStrategy = AgentStrategyCombo.SelectedIndex == 1
             ? AgentStrategies.Plan
             : AgentStrategies.React;
-        Config.AgentSessionRetentionDays = AgentRetentionCombo.SelectedIndex switch
-        {
-            1 => 7,
-            2 => 30,
-            3 => 90,
-            4 => 180,
-            _ => 0
-        };
-        if (double.TryParse(AgentMaxGbBox.Text.Trim(), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var maxGb))
-            Config.AgentSessionMaxStorageGb = Math.Max(0, maxGb);
-        Config.AgentSessionAutoCleanup = AgentAutoCleanupCheck.IsChecked == true;
         Config.DeepSeekTuiSourcePath = TuiSourcePathBox.Text.Trim();
         Config.AgentWorkspaceRoot = AgentWorkspaceBox.Text.Trim();
         Config.AgentAllowShell = AgentAllowShellCheck.IsChecked == true;

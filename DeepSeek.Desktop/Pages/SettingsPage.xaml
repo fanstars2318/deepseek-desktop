@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="DeepSeek.Desktop.Pages.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer Padding="16">
+        <StackPanel Spacing="16" MaxWidth="720">
+            <TextBlock FontSize="20" FontWeight="SemiBold" Text="设置" />
+
+            <StackPanel Spacing="8">
+                <TextBlock FontWeight="SemiBold" Text="账户" />
+                <TextBlock x:Name="LoginStatusText" TextWrapping="WrapWholeWords" />
+                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Text="请在「对话」页登录 chat.deepseek.com" TextWrapping="WrapWholeWords" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock FontWeight="SemiBold" Text="Agent" />
+                <TextBox x:Name="WorkspaceBox" Header="工作区路径" />
+                <TextBox x:Name="ModelBox" Header="默认模型" />
+                <ComboBox x:Name="ApprovalBox" Header="工具审批" Width="240">
+                    <ComboBoxItem Content="smart" Tag="smart" />
+                    <ComboBoxItem Content="readonly" Tag="readonly" />
+                    <ComboBoxItem Content="always" Tag="always" />
+                    <ComboBoxItem Content="never" Tag="never" />
+                </ComboBox>
+                <CheckBox x:Name="DeepThinkDefault" Content="默认开启深度思考" />
+                <CheckBox x:Name="WebSearchDefault" Content="默认开启联网搜索" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock FontWeight="SemiBold" Text="模型映射" />
+                <TextBlock x:Name="MappingSummaryText" TextWrapping="WrapWholeWords" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock FontWeight="SemiBold" Text="外部 OpenAI 兼容 API（可选）" />
+                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           Text="桌面内各模块进程内直连；仅当需要供本机其他应用调用时才开启。"
+                           TextWrapping="WrapWholeWords" />
+                <CheckBox x:Name="EnableExternalApi" Content="启用外部 API" />
+            </StackPanel>
+
+            <StackPanel x:Name="ExternalApiPanel" Spacing="8" Visibility="Collapsed">
+                <CheckBox x:Name="EnableApiKeyAuth" Content="启用 API Key 鉴权" />
+                <TextBlock x:Name="ApiKeySummaryText" TextWrapping="WrapWholeWords" />
+                <Button x:Name="GenerateKeyButton" Click="GenerateKeyButton_Click" Content="生成新 Key" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock FontWeight="SemiBold" Text="MCP" />
+                <TextBlock x:Name="McpSummaryText" TextWrapping="WrapWholeWords" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock FontWeight="SemiBold" Text="运行时" />
+                <TextBlock x:Name="TuiStatusText" TextWrapping="WrapWholeWords" />
+            </StackPanel>
+
+            <Button x:Name="SaveButton" Click="SaveButton_Click" Content="保存" HorizontalAlignment="Left" />
+            <TextBlock x:Name="StatusText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

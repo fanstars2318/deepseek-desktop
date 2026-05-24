@@ -9,7 +9,8 @@ public sealed class AppConfig
     public string Model { get; set; } = "DeepSeek-V3.2";
     public string ApiBaseUrl { get; set; } = "https://api.deepseek.com";
     public string WebApiBaseUrl { get; set; } = "https://chat.deepseek.com/api";
-    public int LocalApiPort { get; set; } = 5111;
+    /// <summary>外部 OpenAI 兼容 API 端口；0 表示使用内置默认（17425）。</summary>
+    public int LocalApiPort { get; set; }
 
     /// <summary>启用后，外部调用本地 Chat2API 须携带 Bearer / X-API-Key（本机 127.0.0.1 内置 Agent 免认证）。</summary>
     public bool EnableLocalApiKeyAuth { get; set; }
@@ -33,6 +34,18 @@ public sealed class AppConfig
     public string DefaultWorkMode { get; set; } = "chat";
     /// <summary>react = Agent；plan = Plan（只读调研）</summary>
     public string DefaultAgentStrategy { get; set; } = "react";
+
+    /// <summary>Agent：Chat2API <c>reasoning_effort</c> / 深度思考（默认开启）。</summary>
+    public bool AgentDeepThinking { get; set; } = true;
+
+    /// <summary>Agent：Chat2API <c>web_search</c> + TUI <c>[features].web_search</c>（默认关闭）。</summary>
+    public bool AgentWebSearch { get; set; }
+
+    /// <summary>Agent 运行时写入调试日志（%LocalAppData%\deepseek_desktop\logs）。</summary>
+    public bool AgentDebugLogEnabled { get; set; } = true;
+
+    /// <summary>Agent 调试日志是否弹出 CMD 窗口实时 tail。</summary>
+    public bool AgentDebugLogConsole { get; set; } = true;
     public bool EnableSubAgents { get; set; } = true;
     public int MaxSubAgentSteps { get; set; } = 10;
 

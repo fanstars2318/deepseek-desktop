@@ -7,8 +7,18 @@
 
   const HEADERS = {
     Accept: "*/*",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     Origin: "https://chat.deepseek.com",
     Referer: "https://chat.deepseek.com/",
+    "Sec-Ch-Ua": '"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
     "X-App-Version": "20241129.1",
     "X-Client-Locale": "zh-CN",
     "X-Client-Platform": "web",
@@ -22,7 +32,14 @@
   function getUserToken() {
     try {
       if (window.__dsWebUserToken) return String(window.__dsWebUserToken);
-      return localStorage.getItem("userToken") || "";
+      const raw = localStorage.getItem("userToken") || "";
+      if (!raw) return "";
+      try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed === "string") return parsed;
+        if (parsed && typeof parsed === "object" && typeof parsed.value === "string") return parsed.value;
+      } catch (_) {}
+      return raw;
     } catch {
       return "";
     }
@@ -48,6 +65,12 @@
     if (!r.ok) throw new Error("获取网页 Token 失败: " + r.status);
 
     const j = await r.json();
+    if (j?.code === 40003 || j?.data?.biz_code === 40003) {
+      throw new Error("网页登录已过期，请在普通对话页重新登录 DeepSeek");
+    }
+    if (j?.code && j.code !== 0) {
+      throw new Error(j.msg || j.data?.biz_msg || "获取网页 Token 失败");
+    }
     const bd = biz(j);
     const accessToken = bd.token || bd.access_token;
     if (!accessToken) throw new Error("网页 Token 为空: " + (j?.msg || j?.data?.biz_msg || "unknown"));
@@ -164,7 +187,12 @@
   async function getDeepSeekHash() {
     if (!hashInstance) {
       hashInstance = new DeepSeekHash();
-      await hashInstance.init(WASM_URL);
+      try {
+        await hashInstance.init(WASM_URL);
+      } catch (err) {
+        hashInstance = null;
+        throw new Error("PoW WASM 加载失败: " + (err && err.message ? err.message : err));
+      }
     }
     return hashInstance;
   }
@@ -518,6 +546,7 @@
   }
 
   async function webChatCompletionStreaming(streamId, messages, model, opts) {
+    postBridgeStream(streamId, { type: "delta", kind: "status", text: "connecting" });
     const { response, sessionId, model: m } = await fetchWebCompletion(messages, model, opts);
     const onDelta = (kind, text) => {
       postBridgeStream(streamId, { type: "delta", kind, text });

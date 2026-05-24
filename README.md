@@ -1,8 +1,8 @@
 # DeepSeek Desktop
 
-将 [DeepSeek 网页版](https://chat.deepseek.com) 封装为 Windows 桌面应用，并内置 **Agent 工作台**（Qwen Code Core 的 C# 移植 + MCP + Skills / Subagents）。
+将 [DeepSeek 网页版](https://chat.deepseek.com) 封装为 Windows 桌面应用：**普通对话**嵌入官网；**Agent 工作台**与 **设置 / API 管理** 在应用内完成，核心逻辑集中在 `DeepSeek.Core`（DeepSeek-TUI 运行时 + 内嵌 Chat2API 管理台 + 网页会话桥）。
 
-> **免责声明：** 本仓库为第三方独立开源项目，与 DeepSeek、Qwen Code（@qwen-code/qwen-code）及任何 Chat2API 相关项目**无隶属、无授权、无背书关系**。使用本软件须自行遵守各第三方服务条款与适用法律；软件按「原样」提供，维护者不承担因使用产生的责任。详见 **[DISCLAIMER.md](./DISCLAIMER.md)**。
+> **免责声明：** 本仓库为第三方独立开源项目，与 DeepSeek、Qwen Code（@qwen-code/qwen-code）及任何独立 Chat2API 开源项目**无隶属、无授权、无背书关系**。使用本软件须自行遵守各第三方服务条款与适用法律。详见 **[DISCLAIMER.md](./DISCLAIMER.md)**。
 
 ---
 
@@ -10,22 +10,49 @@
 
 | 模块 | 说明 |
 |------|------|
-| **普通对话** | 嵌入官方 `chat.deepseek.com`，保留网页登录、深度思考、联网搜索等能力 |
-| **Agent 模式** | 独立工作台页面，通过本地 Chat2API 调用已登录的网页会话进行推理 |
-| **Qwen Code Core** | 参考 [@qwen-code/qwen-code](https://www.npmjs.com/package/@qwen-code/qwen-code) v0.14.5，在 C# 中实现 Core 工具链（**不启动** `qwen.cmd` 子进程） |
-| **MCP** | 可连接多个 Model Context Protocol 服务，与内置工具统一调度 |
-| **Skills / Subagents** | 兼容 `.qwen/skills`、`~/.qwen/skills`、`.qwen/agents` 配置目录 |
-| **本地 OpenAI 兼容 API** | 默认 `http://127.0.0.1:5111/v1`，便于对接其他工具 |
-| **工具审批** | 读操作可自动放行，写入 / Shell 需确认（可配置） |
-| **会话存储** | Agent 对话本地持久化，支持容量与保留天数策略 |
+| **普通对话** | WebView2 嵌入 `chat.deepseek.com`，保留官网登录、深度思考、联网搜索 |
+| **Agent 模式** | 内嵌 Agent 页 + [DeepSeek-TUI](third-party/DeepSeek-TUI) 引擎；LLM 经进程内通道 `internal://desktop/v1`，默认**不**依赖对外 HTTP 代理端口 |
+| **API 管理（Chat2API UI）** | 在 Agent 面板内嵌打开（非独立弹窗）；界面汉化；与桌面配置、TUI `~/.deepseek/config.toml` 双向同步 |
+| **设置** | Agent 内嵌设置页：MCP、工作区、TUI、Chat2API 摘要、登录态检测 |
+| **DeepSeek.Core** | 共享库：配置、Chat2API 兼容层、MCP、TUI 客户端、工作模式等（`DeepSeek.Core.Tests` 回归） |
+| **MCP** | 多 MCP 服务接入，与内置工具统一调度 |
+| **Skills / Subagents** | 兼容 `.qwen/skills`、`~/.qwen/skills`、`.qwen/agents` |
+| **外部 OpenAI API（可选）** | 在 API 管理或设置中手动开启；默认关闭 |
+| **工作模式** | 普通对话 / Agent / 计划模式等，网页悬浮按钮与桌面状态同步 |
 
 ---
 
-## 截图与模式
+## 架构概览
 
-- **普通对话**：官网体验 + 悬浮模式切换按钮  
-- **Agent · ReAct**：单 Agent 循环（Thought → Action → Observation → Final Answer）  
-- **计划 · 子 Agent**：先规划步骤，再按步骤委派子 Agent 执行  
+```mermaid
+flowchart TB
+  subgraph Shell["桌面壳 WPF 默认 / WinUI 可选"]
+    Chat["普通对话\nchat.deepseek.com"]
+    Agent["Agent 页\n+ 内嵌设置 / API 管理"]
+  end
+
+  subgraph Core["DeepSeek.Core"]
+    CFG["ConfigStore"]
+    IPC["Chat2ApiIpcBridge"]
+    Bridge["网页桥 IWebInjectBridge"]
+    Sync["DeepSeekTuiConfigSync"]
+  end
+
+  subgraph Runtime["DeepSeek-TUI 子进程"]
+    TUI["deepseek serve :7878"]
+  end
+
+  Chat --> Bridge
+  Agent --> TUI
+  Agent --> IPC
+  IPC --> CFG
+  IPC --> Sync
+  TUI -.->|LLM 转发| Bridge
+  Bridge --> Chat
+  Sync --> TOML["~/.deepseek/config.toml"]
+```
+
+**桌面栈联动：** API 管理页顶部展示登录态、内嵌通道、TUI 地址等；支持「同步到 TUI」「打开 TUI 配置」「打开主窗口登录」。
 
 ---
 
@@ -34,112 +61,82 @@
 ### 环境
 
 - Windows 10 / 11（x64）
-- [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- [Microsoft Edge WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)
+- [.NET SDK](https://dotnet.microsoft.com/download)（WPF 壳：`net10.0-windows`；Core / WinUI：`net9.0`）
+- [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)
+- 构建 Chat2API 内嵌 UI 时需本机 [Node.js](https://nodejs.org/)（`scripts/build-chat2api-ui.ps1` 会尝试编译上游 renderer；仓库已附带构建产物 `Assets/chat2api/`）
+
+### 克隆
+
+```powershell
+git clone --recurse-submodules https://github.com/fanstars2318/deepseek-desktop.git
+cd deepseek-desktop
+# 若已克隆但未拉取 submodule：
+git submodule update --init --recursive
+```
 
 ### 构建与运行
 
 ```powershell
-git clone https://github.com/fanstars2318/deepseek-desktop.git
-cd deepseek-desktop
-
-# 编译并输出到桌面 DeepSeek-Edge 文件夹（含快捷方式）
+# 默认：WPF 壳 + 内嵌 Chat2API 资源 + DeepSeek-TUI 二进制
 .\build.ps1
+
+# 指定输出目录（例如桌面文件夹）
+.\build.ps1 -DeployDir "$env:USERPROFILE\Desktop\DeepSeek_desktop"
+
+# 实验性 WinUI 3 壳（需本机 Windows App Runtime 正常）
+.\build.ps1 -WinUi
+
+# 从 submodule 源码编译 TUI（需 Rust 1.88+）
+.\scripts\ensure-rust.ps1
+.\build.ps1 -BuildTuiFromSource
 
 # 运行
 .\publish\DeepSeek.exe
-# 或桌面目录：%USERPROFILE%\Desktop\DeepSeek-Edge\DeepSeek.exe
 ```
 
-仅发布到 `publish/` 目录：
+### 回归测试
 
 ```powershell
-dotnet publish -c Release -r win-x64 --self-contained false -o publish
+dotnet test DeepSeek.Core.Tests
+.\scripts\verify-integration.ps1
+.\scripts\smoke-test.ps1
+.\scripts\agent-tui-smoke.ps1   # 需已在普通对话登录
 ```
 
 ### 首次使用
 
-1. 启动应用，在 **普通对话** 中登录 DeepSeek 网页账号。  
-2. 点击右上角 **Agent** 切换到智能体工作台。  
-3. 在设置中配置 MCP 服务器、工作区路径、审批模式等（托盘 / 页面内「MCP 设置」）。  
+1. 启动应用，在 **普通对话** 登录 DeepSeek 网页账号。  
+2. 打开 **Agent**，在侧栏使用 **设置** 或 **API 管理**。  
+3. 在 API 管理页可查看桌面栈状态，点击 **同步到 TUI** 将配置写入 DeepSeek-TUI。  
+4. 按需配置 MCP、工作区、审批模式等。
+
+---
+
+## DeepSeek-TUI submodule
+
+Agent 引擎来自 [`third-party/DeepSeek-TUI`](third-party/DeepSeek-TUI)（submodule，默认 **v0.8.39**）。说明见 [third-party/README.md](third-party/README.md)。
+
+- 发布包默认捆绑 `deepseek.exe` / `deepseek-tui.exe`（由 `build.ps1` 下载或本地提供）  
+- `DeepSeekTuiHost` 启动 `deepseek serve --http`（默认 `:7878`）  
+- 集成元数据：`%LocalAppData%\deepseek_desktop\chat2api-tui-integration.json`
 
 ---
 
 ## Agent 命令速查
 
-在 Agent 输入框中可使用（与 Qwen Code CLI 习惯对齐）：
-
 | 命令 | 作用 |
 |------|------|
 | `/help` | 显示帮助 |
 | `/clear` | 清空当前对话 |
-| `/react` | 切换为 ReAct 单 Agent |
-| `/plan` | 切换为计划 + 子 Agent |
+| `/react` | ReAct 单 Agent |
+| `/plan` | 计划 + 子 Agent |
 | `/chat` | 返回普通网页对话 |
-| `/skills` | 列出可用 Skills |
-| `/skills <名> [任务]` | 加载 Skill 并执行任务 |
-| `/agents` | 列出命名 Subagents |
-| `/agents <名> <任务>` | 委派指定 Subagent |
-| `!<命令>` | 直接执行 Shell（不经模型，需审批） |
-| `@相对路径/文件` | 将工作区内文件注入上下文 |
-
----
-
-## Skills 与 Subagents 配置
-
-与官方 Qwen Code 目录约定一致：
-
-```
-<工作区>/
-  .qwen/
-    skills/
-      <skill-name>/
-        SKILL.md          # YAML frontmatter + 说明正文
-    agents/
-      <agent-name>.md     # YAML frontmatter + 系统提示词
-
-~/.qwen/skills/           # 用户级 Skills
-~/.qwen/agents/           # 用户级 Subagents
-```
-
-可选：若本机安装了 `npm i -g @qwen-code/qwen-code`，可扫描其 `bundled/` 内置 Skills（在配置中开关 `EnableQwenBundledSkills`）。
-
----
-
-## 内置 Core 工具
-
-与 Qwen Code 官方工具名一致：
-
-`read_file` · `write_file` · `edit` · `list_directory` · `glob` · `grep_search` · `run_shell_command` · `web_fetch`
-
-MCP 工具以 `serverId__toolName` 形式暴露给模型。
-
----
-
-## 架构概览
-
-```mermaid
-flowchart LR
-  subgraph UI["桌面外壳 WPF + WebView2"]
-    Chat["普通对话\nchat.deepseek.com"]
-    Agent["Agent 工作台\nds-agent.local"]
-  end
-
-  subgraph Core["C# Qwen Code Core"]
-    Input["输入处理\n! /skills /agents @file"]
-    Orch["AgentOrchestrator\nReAct / Plan"]
-    Tools["内置工具 + MCP Hub"]
-  end
-
-  subgraph API["本地服务"]
-    C2A["Chat2API\n127.0.0.1:5111"]
-  end
-
-  Chat -->|userToken| C2A
-  Agent --> Input --> Orch --> Tools
-  Orch --> C2A
-  C2A -->|网页会话| Chat
-```
+| `/skills` | 列出 Skills |
+| `/skills <名> [任务]` | 加载 Skill 并执行 |
+| `/agents` | 列出 Subagents |
+| `/agents <名> <任务>` | 委派 Subagent |
+| `!<命令>` | 直接 Shell（需审批） |
+| `@路径` | 注入工作区文件 |
 
 ---
 
@@ -147,11 +144,13 @@ flowchart LR
 
 | 路径 | 内容 |
 |------|------|
-| `%LocalAppData%\DeepSeekEdge\config.json` | 登录 Token、MCP、工作区、功能开关 |
-| `%LocalAppData%\DeepSeekEdge\agent-sessions\` | Agent 对话记录 |
-| `%LocalAppData%\DeepSeekEdge\User Data\` | WebView2 用户数据 |
+| `%LocalAppData%\deepseek_desktop\config.json` | 登录 Token、MCP、模型映射、API 开关等 |
+| `%LocalAppData%\deepseek_desktop\agent-sessions\` | Agent 会话 |
+| `%LocalAppData%\deepseek_desktop\User Data\` | WebView2 用户数据 |
+| `%LocalAppData%\deepseek_desktop\chat2api-tui-integration.json` | 桌面 ↔ TUI 集成快照 |
+| `~/.deepseek/config.toml` | DeepSeek-TUI 配置（由桌面同步写入） |
 
-主要配置项见 `Models/AppConfig.cs`（工作区、审批模式、Skills/Subagents 开关、会话清理策略等）。
+主要字段见 `DeepSeek.Core/Models/AppConfig.cs` 与根目录 `Models/AppConfig.cs`（WPF 层扩展）。
 
 ---
 
@@ -159,63 +158,69 @@ flowchart LR
 
 ```
 deepseek-desktop/
+├── DeepSeek.Core/              # 共享业务库
+├── DeepSeek.Core.Tests/        # 单元测试
+├── DeepSeek.Desktop/           # WinUI 3 壳（build.ps1 -WinUi）
+├── DeepSeekBrowser.csproj      # WPF 壳（build.ps1 默认）
 ├── Assets/
-│   ├── inject/          # 官网页脚本注入（bridge、overlay）
-│   └── agent/           # Agent 工作台前端
-├── Services/
-│   ├── QwenCode/        # Qwen Code Core C# 移植
-│   ├── DesktopAgentHost.cs
-│   └── LocalOpenAiServer.cs
-├── Views/               # WPF 设置、审批、运行日志窗口
-├── build.ps1            # 一键发布到桌面
-└── DeepSeekBrowser.csproj
+│   ├── agent/                  # Agent / 内嵌设置 / API 管理宿主页
+│   ├── chat2api/               # Chat2API 管理台静态资源（汉化 + 桌面栈条）
+│   ├── chat2api-ui/            # 覆盖脚本与主题（构建时复制）
+│   └── inject/                 # 官网页注入脚本
+├── third-party/DeepSeek-TUI/   # git submodule
+├── scripts/                    # 构建、验证、冒烟脚本
+└── build.ps1
+```
+
+---
+
+## Chat2API 内嵌 UI 维护
+
+上游 UI 来自 Chat2API renderer；本仓库通过 `scripts/build-chat2api-ui.ps1` 打包并打补丁：
+
+- 移除 About 页与语言切换（固定 **zh-CN**）  
+- 注入 `ds-theme-override.css`、`ds-desktop-stack.js`、`webview-preload.js` 等  
+- 经 Agent iframe → `Chat2ApiIpcBridge` 对接桌面配置与 TUI  
+
+重新生成 UI：
+
+```powershell
+.\scripts\build-chat2api-ui.ps1
+# 可选：-Chat2ApiSource 指向上游 Chat2API 源码目录
 ```
 
 ---
 
 ## 技术栈
 
-- **.NET 10** · **WPF** · **WebView2**
-- **Model Context Protocol**（`ModelContextProtocol` NuGet）
-- 参考 **Qwen Code** 架构与工具命名，推理走 **DeepSeek 网页 Chat API**
+- **.NET** · **WPF**（默认）/ **WinUI 3**（可选）· **WebView2**
+- **DeepSeek-TUI** · **DeepSeek.Core** · **MCP**
+- 推理默认经内嵌通道使用网页登录会话
 
 ---
 
 ## 常见问题
 
-**Agent 页提示「请先在普通对话中登录」？**  
-先在普通对话完成网页登录，再切 Agent；登录态会同步到本地 `config.json`。
-
-**Git 推送失败？**  
-若无法直连 GitHub，可配置系统代理后推送，例如：`git -c http.proxy=http://127.0.0.1:7890 push`。
+**API 管理显示「未登录」？**  
+先在普通对话完成网页登录，或在 API 管理页点击「打开主窗口登录」。
 
 **与 npm 版 Qwen Code 的关系？**  
-本仓库将官方 Core 能力移植进 C#，由 DeepSeek 桌面 Agent 作为外壳；默认**不**通过子进程调用 `qwen` CLI。
+本仓库在 C# 中实现/移植部分 Core 能力，由 DeepSeek 桌面 Agent 调度；默认不启动 `qwen` CLI 子进程。
+
+**Git 推送失败？**  
+可配置代理，例如：`git -c http.proxy=http://127.0.0.1:7890 push`。
 
 ---
 
 ## 相关链接
 
 - 仓库：https://github.com/fanstars2318/deepseek-desktop  
-- [Qwen Code 架构文档](https://qwenlm.github.io/qwen-code-docs/zh/developers/architecture/)  
-- [Qwen Code 自适应 Token 扩容设计](https://qwenlm.github.io/qwen-code-docs/zh/design/adaptive-output-token-escalation/adaptive-output-token-escalation-design/)  
+- [Qwen Code 架构](https://qwenlm.github.io/qwen-code-docs/zh/developers/architecture/)  
 
 ---
 
-## 免责声明
+## 免责声明与贡献
 
-完整条款见 **[DISCLAIMER.md](./DISCLAIMER.md)**，包括但不限于：
+完整条款见 **[DISCLAIMER.md](./DISCLAIMER.md)**。欢迎 Issue / PR；请勿提交含 Token 的 `config.json` 或个人配置。
 
-- 非 DeepSeek / Qwen Code / Chat2API 官方产品，名称与商标归各自权利人所有  
-- 用户对账号、内容合规、第三方 ToS 及 Shell/文件操作**自行负责**  
-- 软件按「原样」提供，维护者**不承担**数据丢失、封号、第三方索赔等责任  
-
-## 开源说明
-
-欢迎 Issue / PR。提交前请确保不包含个人 Token 或 `config.json` 等敏感文件。
-
----
-
-<p align="center">
-  <sub>如果这个项目对你有帮助，欢迎 Star ⭐</sub>
-</p>
+<p align="center"><sub>如果这个项目对你有帮助，欢迎 Star ⭐</sub></p>

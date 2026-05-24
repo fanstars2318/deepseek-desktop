@@ -27,6 +27,19 @@
     storageCount: 0,
     selectMode: false,
     selectedIds: new Set(),
+    deepThink: true,
+    smartSearch: false,
+    embeddedPanel: null,
+  };
+
+  const EMBED_URLS = {
+    settings: "https://ds-agent.local/settings-embed.html",
+    chat2api: "https://ds-chat2api.local/index.html",
+  };
+
+  const EMBED_TITLES = {
+    settings: "设置",
+    chat2api: "API 管理",
   };
 
   function uid() {
@@ -65,8 +78,9 @@
   function updateStorageStats() {
     const el = $("storage-stats");
     if (el) {
-      el.textContent =
-        state.storageCount + " 条 · " + formatStorageSize(state.storageBytes);
+      el.textContent = state.activeSession
+        ? "当前会话（仅内存，关闭后不保留）"
+        : "暂无会话";
     }
   }
 
@@ -86,28 +100,25 @@
 
   async function migrateLegacyLocalStorage() {
     try {
-      const raw = localStorage.getItem("ds-agent-sessions");
-      if (!raw) return;
-      const sessions = JSON.parse(raw);
-      if (!Array.isArray(sessions) || !sessions.length) return;
-      const now = Date.now();
-      const normalized = sessions.map((s) => ({
-        id: s.id || uid(),
-        title: s.title || "新对话",
-        createdAt: s.createdAt || now,
-        updatedAt: s.updatedAt || now,
-        messages: s.messages || [],
-      }));
-      await postAsync("agentStorageMigrate", { sessions: normalized });
       localStorage.removeItem("ds-agent-sessions");
     } catch (_) {}
   }
 
   async function refreshSessionList() {
-    const res = await postAsync("agentStorageList", {});
-    state.sessionMetas = Array.isArray(res.sessions) ? res.sessions : [];
-    state.storageBytes = res.totalBytes || 0;
-    state.storageCount = res.count || state.sessionMetas.length;
+    if (state.activeSession && state.activeSessionId) {
+      const title = state.activeSession.title || "新对话";
+      const updatedAt = Date.now();
+      state.sessionMetas = [{
+        id: state.activeSessionId,
+        title,
+        updatedAt,
+        createdAt: state.activeSession.createdAt || updatedAt,
+      }];
+    } else {
+      state.sessionMetas = [];
+    }
+    state.storageBytes = 0;
+    state.storageCount = state.sessionMetas.length;
     updateStorageStats();
     renderSessions();
   }
@@ -125,23 +136,24 @@
   }
 
   async function persistActiveSession() {
-    const payload = getActiveSessionForSave();
-    if (!payload) return;
-    const res = await postAsync("agentStorageSave", { session: payload });
-    state.storageBytes = res.totalBytes ?? state.storageBytes;
-    state.storageCount = res.count ?? state.storageCount;
-    const meta = state.sessionMetas.find((m) => m.id === payload.id);
+    if (!state.activeSession || !state.activeSessionId) return;
+    const title = state.activeSession.title || "新对话";
+    const updatedAt = Date.now();
+    state.activeSession.updatedAt = updatedAt;
+    const meta = state.sessionMetas.find((m) => m.id === state.activeSessionId);
     if (meta) {
-      meta.title = payload.title;
-      meta.updatedAt = payload.updatedAt;
+      meta.title = title;
+      meta.updatedAt = updatedAt;
     } else {
-      state.sessionMetas.unshift({
-        id: payload.id,
-        title: payload.title,
-        updatedAt: payload.updatedAt,
-        createdAt: payload.createdAt,
-      });
+      state.sessionMetas = [{
+        id: state.activeSessionId,
+        title,
+        updatedAt,
+        createdAt: state.activeSession.createdAt || updatedAt,
+      }];
     }
+    state.storageBytes = 0;
+    state.storageCount = state.sessionMetas.length;
     updateStorageStats();
     renderSessions();
   }
@@ -233,7 +245,7 @@
   const ICON_SEND =
     '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.4 20.6l17.6-8.2c.8-.4.8-1.5 0-1.9L3.4 2.3c-.8-.4-1.6.3-1.4 1.2l2.1 7.3c.1.4.5.7.9.7h6.2c.6 0 1 .4 1 1s-.4 1-1 1H5c-.4 0-.8.3-.9.7l-2.1 7.3c-.2.9.6 1.6 1.4 1.2z"/></svg>';
   const ICON_STOP =
-    '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>';
+    '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="8" y="8" width="8" height="8" rx="1"/></svg>';
 
   function setSendButtonMode(mode) {
     const send = $("btn-send");
@@ -243,10 +255,11 @@
     send.classList.toggle("ds-stop-mode", running);
     send.innerHTML = running ? ICON_STOP : ICON_SEND;
     if (running) {
-      send.disabled = stopping;
+      send.disabled = !!stopping;
       send.setAttribute("aria-label", stopping ? "正在停止" : "停止");
       send.title = stopping ? "正在停止…" : "停止生成";
     } else {
+      send.disabled = false;
       send.setAttribute("aria-label", "发送");
       send.title = "";
     }
@@ -337,6 +350,24 @@
     setLoggedIn(!!online);
   };
 
+  function syncModeFloater(st) {
+    const btn = $("mode-float");
+    const label = $("mode-float-label");
+    if (!btn || !label || !st) return;
+    if (st.surface === "chat") return;
+    label.textContent = st.label || "Agent";
+    btn.classList.toggle("ds-on", !!st.highlight);
+    btn.title = st.title || "";
+  }
+
+  function bindWorkModeClient() {
+    if (!window.DsWorkMode || window.__dsWorkModeClientBound) return;
+    window.__dsWorkModeClientBound = true;
+    window.DsWorkMode.onChange(syncModeFloater);
+    window.DsWorkMode.flushPending();
+    post("requestWorkModeState", {});
+  }
+
   function flushPendingNativeMessages() {
     const q = window.__dsPendingNativeMessages;
     if (!Array.isArray(q) || !q.length) return;
@@ -348,81 +379,93 @@
     });
   }
 
-  const THINK_ICON_SVG =
-    '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#EEF2FF"/><path d="M8 12h8M12 8v8" stroke="#4D6BFE" stroke-width="1.6" stroke-linecap="round"/></svg>';
-
   function truncate(s, max) {
     if (!s) return "";
     return s.length <= max ? s : s.slice(0, max) + "…";
   }
 
+  function escapeHtml(s) {
+    return (s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function formatActivityHtml(target, detail) {
+    let html = escapeHtml(target || "");
+    html = html.replace(/`([^`]+)`/g, '<code class="ds-code">$1</code>');
+    if (detail && detail !== "terminal") {
+      html += ' <span class="ds-activity-meta">' + escapeHtml(detail) + "</span>";
+    }
+    return html;
+  }
+
+  function isInternalLog(text) {
+    const t = (text || "").trim();
+    if (!t) return true;
+    return (
+      /^DeepSeek-TUI/i.test(t) ||
+      /^工作区:/.test(t) ||
+      /^模式:/.test(t) ||
+      /^线程:/.test(t) ||
+      /^回合:/.test(t) ||
+      /Runtime API/i.test(t) ||
+      /Chat2API/i.test(t) ||
+      /MCP \/ Skills/i.test(t) ||
+      /^正努力工作/.test(t) ||
+      /^正在整理回复/.test(t) ||
+      /^已停止/.test(t) ||
+      /^Log /i.test(t)
+    );
+  }
+
   function parseAgentLog(text) {
     const t = (text || "").trim();
-    if (!t) return null;
+    if (!t || isInternalLog(t)) return { kind: "skip" };
     let m;
-    if (/^DeepSeek-TUI ·/.test(t)) {
-      return { kind: "step", verb: "DeepSeek-TUI", target: t.replace(/^DeepSeek-TUI ·\s*/, "").trim() || "运行中" };
-    }
-    m = t.match(/^工作区:\s*(.+)$/);
-    if (m) return { kind: "step", verb: "工作区", target: m[1].trim(), muted: true };
-    m = t.match(/^模式:\s*(.+)$/);
-    if (m) return { kind: "step", verb: "模式", target: m[1].trim(), muted: true };
-    m = t.match(/^线程:\s*(.+)$/);
-    if (m) return { kind: "step", verb: "线程", target: m[1].trim(), muted: true };
-    m = t.match(/^回合:\s*(.+)$/);
-    if (m) return { kind: "step", verb: "回合", target: m[1].trim(), muted: true };
-    m = t.match(/^待审批:\s*(.+)$/);
-    if (m) return { kind: "step", verb: "审批", target: m[1].trim() };
     m = t.match(/^工具:\s*(.+)$/);
-    if (m) return { kind: "step", verb: "工具", target: m[1].trim() };
-    if (/^(已允许|已拒绝)$/.test(t)) return { kind: "step", verb: t, target: "", muted: true };
-    m = t.match(/^--- ReAct 第 (\d+) 步 ---$/);
-    if (m) return { kind: "section", label: "ReAct 第 " + m[1] + " 步" };
-    m = t.match(/^══\s*子 Agent · 步骤 (.+?) ══$/);
-    if (m) return { kind: "section", label: "子 Agent · " + m[1] };
+    if (m) return { kind: "activity", verb: "Ran", target: "`" + m[1].trim() + "`" };
+    m = t.match(/^待审批:\s*(.+)$/);
+    if (m) return { kind: "activity", verb: "Awaiting approval", target: m[1].trim() };
+    if (/^(已允许|已拒绝)$/.test(t))
+      return { kind: "activity", verb: t === "已允许" ? "Approved" : "Denied", target: "" };
     m = t.match(/^思考:\s*(.+)$/s);
-    if (m) return { kind: "prose", text: m[1].trim() };
+    if (m) return { kind: "thinking", text: m[1].trim() };
     m = t.match(/^Thought:\s*(.+)$/s);
-    if (m) return { kind: "prose", text: m[1].trim() };
-    m = t.match(/^Action:\s*调用\s*(\d+)\s*个工具/);
-    if (m) return { kind: "step", verb: "Action", target: m[1] + " 个 MCP 工具" };
-    m = t.match(/^Calling\s+(.+)$/i);
-    if (m) return { kind: "step", verb: "Calling", target: m[1].trim() };
-    m = t.match(/^→\s*(.+)$/);
-    if (m) return { kind: "step", verb: "Calling", target: m[1].trim() };
-    m = t.match(/^Observation:\s*(.+)$/s);
-    if (m) return { kind: "step", verb: "Result", target: m[1].trim(), muted: true };
+    if (m) return { kind: "thinking", text: m[1].trim() };
     if (/^Final Answer:/i.test(t)) return { kind: "skip" };
-    m = t.match(/^策略:\s*(.+)$/);
-    if (m) return { kind: "step", verb: "Strategy", target: m[1].trim() };
-    m = t.match(/^\[计划模式\]\s*(.+)$/);
-    if (m) return { kind: "step", verb: "Plan", target: m[1].trim() };
-    m = t.match(/^  ·\s*(.+)$/);
-    if (m) return { kind: "step", verb: "Step", target: m[1].trim(), muted: true };
-    m = t.match(/^MCP 工具注册表:\s*(.+)$/);
-    if (m) return { kind: "step", verb: "MCP", target: m[1].trim() };
-    m = t.match(/^工具范围:\s*(.+)$/);
-    if (m) return { kind: "step", verb: "Tools", target: m[1].trim(), muted: true };
-    if (/^已连接/.test(t)) return { kind: "step", verb: "MCP", target: t };
-    if (/^连接失败:/.test(t)) return { kind: "step", verb: "Error", target: t, error: true };
-    if (/^错误:/.test(t)) return { kind: "step", verb: "Error", target: t, error: true };
-    return { kind: "step", verb: "Log", target: t, muted: true };
+    if (/^错误:/.test(t)) return { kind: "activity", verb: "Error", target: t, error: true };
+    return { kind: "skip" };
+  }
+
+  function setThinkPhase(run, phase) {
+    if (!run?.phaseEl) return;
+    run.phase = phase;
+    const labels = {
+      exploring: "Exploring",
+      writing: "Writing",
+      thinking: "Thinking",
+      planning: "Planning",
+    };
+    run.phaseEl.textContent = labels[phase] || "Working";
   }
 
   function updateThinkTitle(run) {
-    if (!run?.titleEl) return;
+    if (!run?.phaseEl && !run?.titleEl) return;
     const sec = Math.max(1, Math.floor((Date.now() - run.thinkStartTime) / 1000));
-    run.titleEl.textContent = run.thinkDone
-      ? "已完成（用时 " + sec + " 秒）"
-      : "正努力工作（" + sec + " 秒）";
-  }
-
-  function fadeThinkSteps(stepsEl) {
-    if (!stepsEl) return;
-    const items = [...stepsEl.querySelectorAll(".ds-step")];
-    items.forEach((el, i) => {
-      el.classList.toggle("ds-step-faded", i < items.length - 10);
-    });
+    if (run.subtitleEl) {
+      if (run.thinkDone) {
+        const label = run.hasThinking ? "Thought" : "Worked";
+        run.subtitleEl.textContent = label + " for " + sec + "s";
+        run.subtitleEl.hidden = false;
+      } else {
+        run.subtitleEl.hidden = true;
+      }
+    } else if (run.titleEl) {
+      run.titleEl.textContent = run.thinkDone
+        ? (run.hasThinking ? "Thought for " : "Worked for ") + sec + "s"
+        : run.phaseEl?.textContent || "Exploring";
+    }
   }
 
   function pushThinkRecord(run, entry) {
@@ -431,47 +474,73 @@
     if (run.thinkRecords.length > 200) run.thinkRecords.shift();
   }
 
-  function renderThinkSection(stepsEl, label) {
-    const h = document.createElement("div");
-    h.className = "ds-step-section";
-    h.textContent = label;
-    stepsEl.appendChild(h);
-    return { kind: "section", label };
-  }
-
-  function renderThinkStep(stepsEl, step) {
+  function renderActivityLine(run, activity) {
+    const list = run.activitiesEl || run.stepsEl;
+    if (!list) return null;
     const row = document.createElement("div");
-    row.className = "ds-step" + (step.error ? " ds-step-error" : "");
+    row.className = "ds-activity" + (activity.error ? " ds-activity-error" : "");
     const verb = document.createElement("span");
-    verb.className = "ds-step-verb";
-    verb.textContent = step.verb;
-    const target = document.createElement("span");
-    target.className = "ds-step-target";
-    target.textContent = truncate(step.target, 220);
-    row.append(verb, target);
-    stepsEl.appendChild(row);
-    fadeThinkSteps(stepsEl);
-    return { kind: "step", verb: step.verb, target: step.target, error: !!step.error };
+    verb.className = "ds-activity-verb";
+    verb.textContent = activity.verb;
+    const detail = document.createElement("span");
+    detail.className = "ds-activity-detail";
+    detail.innerHTML = formatActivityHtml(activity.target, activity.detail);
+    row.append(verb, detail);
+    list.appendChild(row);
+    const items = list.querySelectorAll(".ds-activity");
+    items.forEach((el, i) => {
+      el.classList.toggle("ds-activity-faded", i < items.length - 12);
+    });
+    return {
+      kind: "activity",
+      verb: activity.verb,
+      target: activity.target,
+      detail: activity.detail,
+      error: !!activity.error,
+    };
   }
 
-  function applyThinkLog(run, parsed) {
-    if (!run || !parsed || parsed.kind === "skip") return;
-    if (parsed.kind === "prose") {
-      run.proseEl.textContent = parsed.text;
-      pushThinkRecord(run, { kind: "prose", text: parsed.text });
-    } else if (parsed.kind === "section") {
-      renderThinkSection(run.stepsEl, parsed.label);
-      pushThinkRecord(run, { kind: "section", label: parsed.label });
-    } else if (parsed.kind === "step") {
-      pushThinkRecord(run, renderThinkStep(run.stepsEl, parsed));
+  function applyAgentActivity(run, activity) {
+    if (!run || !activity?.verb) return;
+    if (/^(Read|Grepped|Listed|Searched|Ran|Edited|Fetched)/i.test(activity.verb)) {
+      setThinkPhase(run, "exploring");
     }
+    pushThinkRecord(run, renderActivityLine(run, activity));
     updateThinkTitle(run);
     scrollToBottom();
   }
 
+  function applyAgentThinking(run, text, append) {
+    if (!run || !text) return;
+    run.hasThinking = true;
+    setThinkPhase(run, "thinking");
+    if (run.thinkingWrap) run.thinkingWrap.hidden = false;
+    if (run.proseEl) {
+      run.proseEl.textContent = append ? (run.proseEl.textContent || "") + text : text;
+    }
+    pushThinkRecord(run, { kind: "thinking", text: run.proseEl?.textContent || text });
+    updateThinkTitle(run);
+    scrollToBottom();
+  }
+
+  function applyThinkLog(run, parsed) {
+    if (!run || !parsed || parsed.kind === "skip") return;
+    if (parsed.kind === "activity") applyAgentActivity(run, parsed);
+    else if (parsed.kind === "thinking") applyAgentThinking(run, parsed.text, false);
+    else if (parsed.kind === "prose") applyAgentThinking(run, parsed.text, false);
+    else if (parsed.kind === "step") {
+      applyAgentActivity(run, {
+        verb: parsed.verb || "Log",
+        target: parsed.target || "",
+        error: parsed.error,
+      });
+    }
+    updateThinkTitle(run);
+  }
+
   function appendLogLine(text) {
     const run = state.currentRun;
-    if (!run?.stepsEl) return;
+    if (!run) return;
     applyThinkLog(run, parseAgentLog(text));
   }
 
@@ -482,29 +551,54 @@
     header.type = "button";
     header.className = "ds-think-header";
     header.setAttribute("aria-expanded", "true");
-    const icon = document.createElement("span");
-    icon.className = "ds-think-icon";
-    icon.innerHTML = THINK_ICON_SVG;
-    const title = document.createElement("span");
-    title.className = "ds-think-title";
-    title.textContent = "正努力工作…";
+    const phase = document.createElement("span");
+    phase.className = "ds-think-phase";
+    phase.textContent = "Exploring";
     const chevron = document.createElement("span");
     chevron.className = "ds-think-chevron";
     chevron.innerHTML =
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>';
-    header.append(icon, title, chevron);
+    header.append(phase, chevron);
+
+    const subtitle = document.createElement("div");
+    subtitle.className = "ds-think-subtitle";
+    subtitle.hidden = true;
+
     const body = document.createElement("div");
     body.className = "ds-think-body";
+    const activities = document.createElement("div");
+    activities.className = "ds-activity-list";
+
+    const thinkingWrap = document.createElement("div");
+    thinkingWrap.className = "ds-thinking-wrap";
+    thinkingWrap.hidden = true;
+    const thinkingToggle = document.createElement("button");
+    thinkingToggle.type = "button";
+    thinkingToggle.className = "ds-thinking-toggle";
+    thinkingToggle.setAttribute("aria-expanded", "true");
+    thinkingToggle.append(document.createTextNode("Thinking "), (() => {
+      const s = document.createElement("span");
+      s.className = "ds-thinking-chevron";
+      s.textContent = "⌄";
+      return s;
+    })());
     const prose = document.createElement("div");
     prose.className = "ds-think-prose";
-    const steps = document.createElement("div");
-    steps.className = "ds-think-steps";
-    body.append(prose, steps);
-    think.append(header, body);
+    thinkingWrap.append(thinkingToggle, prose);
+
+    body.append(activities, thinkingWrap);
+    think.append(header, subtitle, body);
+
     header.addEventListener("click", () => {
       const collapsed = think.classList.toggle("ds-collapsed");
       header.setAttribute("aria-expanded", collapsed ? "false" : "true");
     });
+    thinkingToggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const collapsed = thinkingWrap.classList.toggle("ds-thinking-collapsed");
+      thinkingToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    });
+
     const tick = setInterval(() => {
       if (!think.isConnected || state.currentRun?.thinkEl !== think) {
         clearInterval(tick);
@@ -512,11 +606,17 @@
       }
       updateThinkTitle(state.currentRun);
     }, 1000);
+
     return {
       thinkEl: think,
-      titleEl: title,
+      phaseEl: phase,
+      subtitleEl: subtitle,
+      activitiesEl: activities,
+      thinkingWrap,
+      thinkingToggle,
       proseEl: prose,
-      stepsEl: steps,
+      phase: "exploring",
+      hasThinking: false,
       thinkStartTime: Date.now(),
       thinkDone: false,
       thinkRecords: [],
@@ -537,19 +637,19 @@
     think.thinkDone = true;
     container.appendChild(think.thinkEl);
     data.records.forEach((rec) => {
-      if (rec.kind === "prose") think.proseEl.textContent = rec.text;
-      else if (rec.kind === "section") renderThinkSection(think.stepsEl, rec.label);
-      else if (rec.kind === "step") {
-        const row = document.createElement("div");
-        row.className = "ds-step" + (rec.error ? " ds-step-error" : "");
-        const verb = document.createElement("span");
-        verb.className = "ds-step-verb";
-        verb.textContent = rec.verb;
-        const target = document.createElement("span");
-        target.className = "ds-step-target";
-        target.textContent = truncate(rec.target, 220);
-        row.append(verb, target);
-        think.stepsEl.appendChild(row);
+      if (rec.kind === "activity")
+        renderActivityLine(think, {
+          verb: rec.verb,
+          target: rec.target,
+          detail: rec.detail,
+          error: rec.error,
+        });
+      else if (rec.kind === "thinking" || rec.kind === "prose") {
+        think.hasThinking = true;
+        if (think.thinkingWrap) think.thinkingWrap.hidden = false;
+        think.proseEl.textContent = rec.text || "";
+      } else if (rec.kind === "step") {
+        renderActivityLine(think, { verb: rec.verb, target: rec.target, error: rec.error });
       }
     });
     updateThinkTitle(think);
@@ -735,7 +835,6 @@
 
   async function startNewChat() {
     if (state.running) return;
-    await persistActiveSession().catch(() => {});
     prepareEmptyChat();
   }
 
@@ -816,18 +915,8 @@
   }
 
   async function loadSession(id) {
-    if (state.running) return;
-    if (!id) return;
-    await persistActiveSession().catch(() => {});
-    const res = await postAsync("agentStorageLoad", { id });
-    const raw = res.session;
-    if (!raw) return;
-    const s = normalizeSession(raw);
-    if (!s) return;
-    state.activeSessionId = id;
-    state.activeSession = s;
-    renderSessions();
-    renderSessionMessages(s.messages);
+    if (state.running || !id || id !== state.activeSessionId) return;
+    renderSessionMessages(state.activeSession?.messages || []);
   }
 
   function ensureSession() {
@@ -847,7 +936,7 @@
 
   function agentHelpText() {
     return (
-      "DeepSeek 桌面 Agent（DeepSeek-TUI）\n" +
+      "DeepSeek 桌面 Agent\n" +
       "/help  本帮助\n" +
       "/clear  清空对话\n" +
       "/react  Agent 模式（多步工具，Tab 对应官网 Agent）\n" +
@@ -872,16 +961,17 @@
     }
     if (cmd === "/react") {
       state.strategy = "react";
-      appendMessage("assistant", "已切换为 Agent 模式（多步工具，DeepSeek-TUI）。", { status: "模式" });
+      appendMessage("assistant", "已切换为 Agent 模式（多步工具）。", { status: "模式" });
       return true;
     }
     if (cmd === "/plan") {
       state.strategy = "plan";
-      appendMessage("assistant", "已切换为 Plan 模式（只读调研，DeepSeek-TUI）。", { status: "模式" });
+      appendMessage("assistant", "已切换为 Plan 模式（只读调研）。", { status: "模式" });
       return true;
     }
     if (cmd === "/chat") {
-      post("setWorkMode", { mode: "chat" });
+      if (window.DsWorkMode) window.DsWorkMode.requestSet("chat");
+      else post("setWorkMode", { mode: "chat" });
       return true;
     }
     if (cmd === "/skills" || cmd === "/skill" || cmd === "/agents" || cmd === "/agent") {
@@ -912,10 +1002,12 @@
     session.messages.push({ role: "user", text });
     await persistActiveSession().catch(() => {});
 
-    state.currentRun = appendMessage("assistant", "", { status: "DeepSeek-TUI 正在执行…" });
+    state.currentRun = appendMessage("assistant", "", { status: "Agent 正在执行…" });
     state.running = true;
+    state.stopping = false;
     syncAllUserMessageActions();
     updateComposerState();
+    requestAnimationFrame(() => updateComposerState());
     input.value = "";
     resizeInput();
 
@@ -929,8 +1021,8 @@
       text: text || (refFileIds.length ? "请阅读附件并完成任务。" : text),
       mode: "专家",
       strategy: state.strategy,
-      deepThink: true,
-      smartSearch: true,
+      deepThink: state.deepThink,
+      smartSearch: state.smartSearch,
       mcpOn: true,
       refFileIds,
       sessionId: state.activeSessionId,
@@ -949,8 +1041,8 @@
     if (!state.running || state.stopping) return;
     state.stopping = true;
     updateComposerState();
-    if (state.currentRun?.titleEl) {
-      state.currentRun.titleEl.textContent = "正在停止…";
+    if (state.currentRun?.phaseEl) {
+      state.currentRun.phaseEl.textContent = "Stopping";
     }
     post("agentStop", {});
   }
@@ -1005,18 +1097,66 @@
     if (!msg || !msg.type) return;
     if (handlePendingReply(msg)) return;
 
+    if (msg.type === "showEmbeddedPanel" && msg.panel) {
+      embeddedPanel?.show(msg.panel);
+      return;
+    }
+
+    if (msg.type === "hideEmbeddedPanel") {
+      embeddedPanel?.hide();
+      return;
+    }
+
+    if (state.embeddedPanel && forwardEmbeddedHostMessage(msg)) return;
+
+    if (msg.type === "embeddedPanelReady" && state.embeddedPanel) {
+      const loading = $("embedded-panel-loading");
+      if (loading) loading.hidden = true;
+      return;
+    }
+
+    if (msg.type === "workModeState" && window.DsWorkMode) {
+      window.DsWorkMode.applyState(msg);
+    }
+
     if (msg.type === "apiInfo" || msg.type === "loginState") {
       setLoggedIn(!!msg.loggedIn);
-      if (msg.type === "apiInfo" && msg.agentStrategy) {
-        state.strategy = msg.agentStrategy === "plan" ? "plan" : "react";
+      if (msg.type === "apiInfo") {
+        if (msg.agentStrategy) {
+          state.strategy = msg.agentStrategy === "plan" ? "plan" : "react";
+        }
+        if (typeof msg.agentDeepThinking === "boolean") state.deepThink = msg.agentDeepThinking;
+        if (typeof msg.agentWebSearch === "boolean") state.smartSearch = msg.agentWebSearch;
+        syncFeaturePills();
       }
     }
 
+    if (msg.type === "agentActivity" && msg.verb) {
+      if (state.currentRun && !state.running) {
+        state.running = true;
+        updateComposerState();
+      }
+      applyAgentActivity(state.currentRun, {
+        verb: msg.verb,
+        target: msg.target || "",
+        detail: msg.detail || null,
+      });
+    }
+
+    if (msg.type === "agentThinking" && msg.text) {
+      if (state.currentRun) applyAgentThinking(state.currentRun, msg.text, !!msg.append);
+    }
+
     if (msg.type === "agentLog" && msg.text) {
+      if (state.currentRun && !state.running) {
+        state.running = true;
+        updateComposerState();
+      }
       appendLogLine(msg.text);
     }
 
     if (msg.type === "agentAnswer" && msg.text) {
+      if (state.currentRun) setThinkPhase(state.currentRun, "writing");
       if (state.currentRun?.answerEl) {
         if (msg.append) {
           state.currentRun.answerEl.textContent += msg.text;
@@ -1032,29 +1172,252 @@
     }
 
     if (msg.type === "agentStarted") {
+      state.running = true;
+      state.stopping = false;
+      updateComposerState();
+      if (state.currentRun) {
+        state.currentRun._waitTimer = setTimeout(() => {
+          if (state.running && state.currentRun && !state.currentRun.thinkDone) {
+            setThinkPhase(state.currentRun, "thinking");
+            updateThinkTitle(state.currentRun);
+          }
+        }, 1500);
+      }
       updateThinkTitle(state.currentRun);
     }
 
     if (msg.type === "agentDone") {
+      if (state.currentRun?._waitTimer) clearTimeout(state.currentRun._waitTimer);
       finishRun(msg.summary, msg.answer);
     }
   };
 
+  function syncFeaturePills() {
+    const thinkBtn = $("btn-deep-think");
+    const searchBtn = $("btn-smart-search");
+    if (thinkBtn) {
+      thinkBtn.classList.toggle("is-on", state.deepThink);
+      thinkBtn.setAttribute("aria-pressed", state.deepThink ? "true" : "false");
+    }
+    if (searchBtn) {
+      searchBtn.classList.toggle("is-on", state.smartSearch);
+      searchBtn.setAttribute("aria-pressed", state.smartSearch ? "true" : "false");
+    }
+  }
+
+  function persistAgentFeatures() {
+    post("setAgentFeatures", {
+      deepThink: state.deepThink,
+      smartSearch: state.smartSearch,
+    });
+  }
+
+  function forwardEmbeddedHostMessage(msg) {
+    const iframe = $("embedded-frame");
+    if (!iframe?.contentWindow || !state.embeddedPanel) return false;
+
+    if (state.embeddedPanel === "settings") {
+      if (msg.reqId && String(msg.reqId).startsWith("s")) {
+        try {
+          iframe.contentWindow.postMessage(JSON.stringify(msg), "*");
+        } catch (_) {}
+        return true;
+      }
+      return false;
+    }
+
+    if (state.embeddedPanel === "chat2api") {
+      if (
+        msg.type === "ipcResult" ||
+        msg.type === "ipcEvent" ||
+        msg.type === "desktopStackSynced"
+      ) {
+        try {
+          iframe.contentWindow.postMessage(JSON.stringify(msg), "*");
+        } catch (_) {}
+        return true;
+      }
+      return false;
+    }
+
+    return false;
+  }
+
+  function bindEmbeddedPanel() {
+    const root = $("embedded-panel");
+    const iframe = $("embedded-frame");
+    const loading = $("embedded-panel-loading");
+    const titleEl = $("embedded-panel-title");
+    const backBtn = $("embedded-back");
+    if (!root || !iframe) return { show: () => {}, hide: () => {} };
+
+    function hideEmbeddedPanel() {
+      state.embeddedPanel = null;
+      root.hidden = true;
+      document.body.classList.remove("ds-embedded-open");
+      iframe.src = "about:blank";
+      if (loading) loading.hidden = false;
+    }
+
+    function showEmbeddedPanel(panel) {
+      if (!EMBED_URLS[panel]) return;
+      state.embeddedPanel = panel;
+      if (titleEl) titleEl.textContent = EMBED_TITLES[panel] || panel;
+      if (loading) loading.hidden = false;
+      root.hidden = false;
+      document.body.classList.add("ds-embedded-open");
+      iframe.src = EMBED_URLS[panel];
+    }
+
+    backBtn?.addEventListener("click", hideEmbeddedPanel);
+    iframe?.addEventListener("load", () => {
+      if (state.embeddedPanel && loading) loading.hidden = true;
+      if (state.embeddedPanel === "settings" && iframe.contentWindow && state.authResolved) {
+        try {
+          iframe.contentWindow.postMessage(
+            JSON.stringify({
+              type: "settingsBootstrap",
+              __dsEmbed: true,
+              loggedIn: state.loggedIn,
+            }),
+            "*"
+          );
+        } catch (_) {}
+      }
+    });
+
+    window.addEventListener("message", (e) => {
+      if (e.source !== iframe.contentWindow) return;
+      let msg;
+      try {
+        msg = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+      } catch (_) {
+        return;
+      }
+      if (!msg?.type) return;
+      if (!msg.__dsEmbed) return;
+      if (msg.type === "settingsEmbedClose") {
+        hideEmbeddedPanel();
+        return;
+      }
+      const payload = { ...msg };
+      delete payload.__dsEmbed;
+      if (msg.type === "consoleUiReady") {
+        if (loading) loading.hidden = true;
+      }
+      post(msg.type, payload);
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && state.embeddedPanel) hideEmbeddedPanel();
+    });
+
+    return { show: showEmbeddedPanel, hide: hideEmbeddedPanel };
+  }
+
+  function openEmbeddedPanel(panel) {
+    embeddedPanel?.show(panel);
+    post("prepareEmbeddedPanel", { panel });
+  }
+
+  function bindSettingsMenu() {
+    const btn = $("btn-sidebar-settings");
+    const backdrop = $("settings-backdrop");
+    const popover = $("settings-popover");
+    if (!btn || !backdrop || !popover) return;
+
+    function positionPopover() {
+      const rect = btn.getBoundingClientRect();
+      popover.style.visibility = "hidden";
+      popover.hidden = false;
+      const width = popover.offsetWidth;
+      popover.hidden = true;
+      popover.style.visibility = "";
+      const left = Math.min(
+        Math.max(8, rect.right - width),
+        window.innerWidth - width - 8
+      );
+      popover.style.top = `${rect.bottom + 6}px`;
+      popover.style.left = `${left}px`;
+    }
+
+    function closeSettingsMenu() {
+      backdrop.hidden = true;
+      popover.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      btn.classList.remove("ds-active");
+    }
+
+    function openSettingsMenu() {
+      positionPopover();
+      backdrop.hidden = false;
+      popover.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+      btn.classList.add("ds-active");
+    }
+
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (popover.hidden) openSettingsMenu();
+      else closeSettingsMenu();
+    });
+
+    backdrop.addEventListener("click", closeSettingsMenu);
+    popover.addEventListener("click", (e) => e.stopPropagation());
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !popover.hidden) closeSettingsMenu();
+    });
+
+    window.addEventListener("resize", () => {
+      if (!popover.hidden) positionPopover();
+    });
+
+    return closeSettingsMenu;
+  }
+
+  let embeddedPanel = null;
+
   function bindUi() {
+    embeddedPanel = bindEmbeddedPanel();
+    $("btn-deep-think")?.addEventListener("click", () => {
+      state.deepThink = !state.deepThink;
+      syncFeaturePills();
+      persistAgentFeatures();
+    });
+    $("btn-smart-search")?.addEventListener("click", () => {
+      state.smartSearch = !state.smartSearch;
+      syncFeaturePills();
+      persistAgentFeatures();
+    });
+    syncFeaturePills();
+
     $("btn-send")?.addEventListener("click", () => {
       if (state.running) cancelRun();
       else dispatchRun();
     });
     $("btn-new-chat")?.addEventListener("click", () => startNewChat());
-    $("btn-mcp")?.addEventListener("click", () => post("openSettings", {}));
-    $("btn-storage-settings")?.addEventListener("click", () => post("openSettings", {}));
-    $("mode-float")?.addEventListener("click", () => {
-      post("setWorkMode", { mode: "chat" });
+    const closeSettingsMenu = bindSettingsMenu();
+    $("btn-chat2api")?.addEventListener("click", () => {
+      closeSettingsMenu?.();
+      openEmbeddedPanel("chat2api");
     });
+    $("btn-mcp")?.addEventListener("click", () => {
+      closeSettingsMenu?.();
+      openEmbeddedPanel("settings");
+    });
+    $("btn-storage-settings")?.addEventListener("click", () => openEmbeddedPanel("settings"));
+    const modeFloat = $("mode-float");
+    if (modeFloat && window.DsWorkMode && window.DsWorkMode.markFloater) {
+      window.DsWorkMode.markFloater(modeFloat);
+    }
     $("brand-home")?.addEventListener("click", (e) => {
       e.preventDefault();
     });
-    $("btn-login-goto")?.addEventListener("click", () => post("setWorkMode", { mode: "chat" }));
+    $("btn-login-goto")?.addEventListener("click", () => {
+      if (window.DsWorkMode) window.DsWorkMode.requestSet("chat");
+      else post("setWorkMode", { mode: "chat" });
+    });
 
     const fileInput = $("file-input");
     const attachBtn = $("btn-attach");
@@ -1072,7 +1435,8 @@
     input?.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
-        dispatchRun();
+        if (state.running) cancelRun();
+        else dispatchRun();
       }
     });
 
@@ -1083,49 +1447,20 @@
       renderSessions();
     });
     $("btn-delete-selected")?.addEventListener("click", async () => {
-      const ids = [...state.selectedIds];
-      if (!ids.length) {
-        alert("请先勾选要删除的对话。");
-        return;
-      }
-      if (!confirm("确定删除所选 " + ids.length + " 条对话？此操作不可恢复。")) return;
-      const res = await postAsync("agentStorageDelete", { ids });
-      state.sessionMetas = res.sessions || [];
-      state.storageBytes = res.totalBytes || 0;
-      state.storageCount = res.count || 0;
-      if (ids.includes(state.activeSessionId)) {
-        state.activeSessionId = null;
-        state.activeSession = null;
-        if (state.sessionMetas.length) {
-          await loadSession(state.sessionMetas[0].id);
-        } else {
-          await startNewChat();
-        }
-      }
+      if (!confirm("确定清空当前对话？")) return;
       setSelectMode(false);
-      updateStorageStats();
-      renderSessions();
+      await startNewChat();
     });
   }
 
   async function bootstrapStorage() {
-    try {
-      await migrateLegacyLocalStorage();
-      await refreshSessionList();
-      if (state.sessionMetas.length) {
-        await loadSession(state.sessionMetas[0].id);
-      } else {
-        prepareEmptyChat();
-      }
-    } catch (e) {
-      console.warn("Agent storage init:", e);
-      prepareEmptyChat();
-    }
+    await migrateLegacyLocalStorage();
   }
 
   async function init() {
     bindUi();
     resizeInput();
+    bindWorkModeClient();
 
     const banner = $("login-banner");
     if (banner) {
@@ -1135,11 +1470,11 @@
     if (window.__dsLoggedIn === true) setLoggedIn(true);
     else if (window.__dsLoggedIn === false) setLoggedIn(false);
 
+    prepareEmptyChat();
+    void bootstrapStorage();
     post("nativeReady", {});
     post("refreshLoginState", {});
     flushPendingNativeMessages();
-
-    await bootstrapStorage();
 
     const pollLogin = () => post("refreshLoginState", {});
     setInterval(pollLogin, 3000);

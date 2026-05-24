@@ -2,12 +2,13 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
+using DeepSeekBrowser.Services;
 
 namespace DeepSeekBrowser;
 
 public partial class App : System.Windows.Application
 {
-    private const string MutexName = "DeepSeekBrowser.SingleInstance";
+    private const string MutexName = DeepSeekDesktopApp.SingleInstanceMutexName;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -24,6 +25,12 @@ public partial class App : System.Windows.Application
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 
         base.OnStartup(e);
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        ShutdownCoordinator.RunExitCleanup();
+        base.OnExit(e);
     }
 
     private static void ActivateExistingInstance()
@@ -66,10 +73,7 @@ public partial class App : System.Windows.Application
     {
         try
         {
-            var path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "DeepSeekEdge",
-                "crash.log");
+            var path = Path.Combine(DeepSeekDesktopApp.LocalAppDataRoot, "crash.log");
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.AppendAllText(path, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}]\r\n{ex}\r\n\r\n");
         }

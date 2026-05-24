@@ -17,6 +17,7 @@ public sealed class WebChatBridgeHost
     private TaskCompletionSource<bool> _readyTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _navigated;
     private string? _pendingWebUserToken;
+    private string? _bridgeScript;
 
     public WebChatBridgeHost(WebView2 webView) => _webView = webView;
 
@@ -30,14 +31,18 @@ public sealed class WebChatBridgeHost
             var core = _webView.CoreWebView2
                        ?? throw new InvalidOperationException("无法初始化 Chat2API 桥接 WebView");
 
+            core.Settings.IsWebMessageEnabled = true;
+            core.Settings.IsScriptEnabled = true;
+
             var injectDir = Path.Combine(AppContext.BaseDirectory, "Assets", "inject");
             core.SetVirtualHostNameToFolderMapping(
                 "ds-inject.local",
                 injectDir,
                 CoreWebView2HostResourceAccessKind.Allow);
 
-            var bridgeScript = File.ReadAllText(Path.Combine(injectDir, "bridge.js"));
-            await core.AddScriptToExecuteOnDocumentCreatedAsync(bridgeScript);
+            var bridgePath = Path.Combine(injectDir, "bridge.js");
+            _bridgeScript = File.ReadAllText(bridgePath);
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(_bridgeScript);
             core.WebMessageReceived += OnBridgeWebMessageReceived;
             core.NavigationCompleted += OnNavigationCompleted;
             core.Navigate(AppNavigation.DeepSeekUrl);
@@ -89,25 +94,56 @@ public sealed class WebChatBridgeHost
             await _webView.CoreWebView2.ExecuteScriptAsync($"window.__dsWebUserToken={esc};");
         });
 
+    private async Task EnsureBridgeScriptInjectedAsync()
+    {
+        var core = _webView.CoreWebView2;
+        if (core is null || string.IsNullOrEmpty(_bridgeScript))
+            return;
+
+        var typeRaw = await core.ExecuteScriptAsync("typeof window.dsDesktopBridge");
+        if (typeRaw?.Contains("object", StringComparison.OrdinalIgnoreCase) == true)
+            return;
+
+        var reinject = _bridgeScript.Replace(
+            "if (window.__dsBridge) return;",
+            "try{delete window.__dsBridge;delete window.dsDesktopBridge;}catch(e){}",
+            StringComparison.Ordinal);
+        await core.ExecuteScriptAsync(reinject);
+    }
+
+    private async Task<bool> TryMarkBridgeReadyAsync(CancellationToken ct)
+    {
+        await EnsureBridgeScriptInjectedAsync();
+        await InjectPendingTokenOnUiAsync();
+
+        try
+        {
+            _ = await ExecuteBridgeScriptAsync(
+                "window.dsDesktopBridge?window.dsDesktopBridge.ping():null", ct);
+            _readyTcs.TrySetResult(true);
+            return true;
+        }
+        catch
+        {
+            var typeRaw = await _webView.CoreWebView2!.ExecuteScriptAsync("typeof window.dsDesktopBridge");
+            if (typeRaw?.Contains("object", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                _readyTcs.TrySetResult(true);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private async Task VerifyBridgeAsync()
     {
         try
         {
-            await InjectPendingTokenOnUiAsync();
             for (var i = 0; i < 60; i++)
             {
-                try
-                {
-                    _ = await ExecuteBridgeScriptAsync(
-                        "window.dsDesktopBridge && window.dsDesktopBridge.ping()", CancellationToken.None);
-                    _readyTcs.TrySetResult(true);
+                if (await TryMarkBridgeReadyAsync(CancellationToken.None))
                     return;
-                }
-                catch
-                {
-                    // bridge 尚未就绪
-                }
-
                 await Task.Delay(300);
             }
         }
@@ -151,10 +187,8 @@ public sealed class WebChatBridgeHost
 
                 try
                 {
-                    _ = await ExecuteBridgeScriptAsync(
-                        "window.dsDesktopBridge && window.dsDesktopBridge.ping()", ct);
-                    _readyTcs.TrySetResult(true);
-                    return;
+                    if (await TryMarkBridgeReadyAsync(ct))
+                        return;
                 }
                 catch
                 {
@@ -296,6 +330,9 @@ public sealed class WebChatBridgeHost
         if (!_streamHubs.TryAdd(hub.StreamId, hub))
             throw new InvalidOperationException("无法创建流式会话");
 
+        using var stallCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        _ = MonitorStreamStallAsync(hub, stallCts.Token);
+
         var payload = BuildMessagePayload(messages);
         var msgJson = JsonSerializer.Serialize(payload);
         var optsJson = JsonSerializer.Serialize(new
@@ -307,33 +344,69 @@ public sealed class WebChatBridgeHost
             chatSessionId = webChatSessionId
         });
         var streamIdJson = JsonSerializer.Serialize(hub.StreamId);
-        var expr =
-            $"window.dsDesktopBridge.webChatCompletionStreaming({streamIdJson}, {msgJson}, {JsonSerializer.Serialize(model)}, {optsJson})";
+        var modelJson = JsonSerializer.Serialize(model);
+        var startScript =
+            "(function(){try{"
+            + "var sid=" + streamIdJson + ";"
+            + "var run=window.dsDesktopBridge&&window.dsDesktopBridge.webChatCompletionStreaming;"
+            + "if(!run)throw new Error('dsDesktopBridge 未就绪');"
+            + "run.call(window.dsDesktopBridge,sid," + msgJson + "," + modelJson + "," + optsJson + ")"
+            + ".catch(function(e){"
+            + "try{window.chrome.webview.postMessage(JSON.stringify({channel:'bridge_stream',streamId:sid,type:'error',message:String((e&&(e.message||e.stack))||e||'stream error')}));}"
+            + "catch(x){}"
+            + "});"
+            + "return JSON.stringify({ok:true,data:true});"
+            + "}catch(e){return JSON.stringify({ok:false,error:String((e&&(e.message||e.stack))||e||'start failed')});}})()";
 
-        var scriptTask = RunOnUiAsync(async () =>
+        await RunOnUiAsync(async () =>
         {
             try
             {
-                _ = await ExecuteBridgeScriptAsync(expr, ct);
-                hub.SignalScriptCompleted();
+                await EnsureBridgeScriptInjectedAsync();
+                await InjectPendingTokenOnUiAsync();
+                var raw = await ExecuteBridgeScriptRawAsync(startScript);
+                if (string.IsNullOrWhiteSpace(raw) || raw == "null")
+                    throw new InvalidOperationException("网页桥接启动流式请求失败");
+                if (raw.Contains("\"ok\":false", StringComparison.OrdinalIgnoreCase))
+                {
+                    var err = WebBridgeResponse.ParseData(raw);
+                    throw new InvalidOperationException(string.IsNullOrWhiteSpace(err) ? "网页桥接启动失败" : err);
+                }
             }
             catch (Exception ex)
             {
                 hub.PushError(ex.Message);
-                hub.SignalScriptFailed(ex);
-                throw;
-            }
-            finally
-            {
-                _streamHubs.TryRemove(hub.StreamId, out _);
             }
         });
 
-        await foreach (var ev in hub.ReadAllAsync(ct))
-            yield return ev;
+        try
+        {
+            await foreach (var ev in hub.ReadAllAsync(ct))
+                yield return ev;
+        }
+        finally
+        {
+            stallCts.Cancel();
+            _streamHubs.TryRemove(hub.StreamId, out _);
+            hub.Dispose();
+        }
+    }
 
-        await scriptTask;
-        hub.Dispose();
+    private static async Task MonitorStreamStallAsync(WebChatStreamHub hub, CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(90), ct);
+            if (!hub.HasReceivedDelta)
+            {
+                hub.PushError(
+                    "网页 Chat 流 90 秒无响应：请确认已在「普通对话」登录 DeepSeek；若仍失败请重启应用或暂时关闭「深度思考」。");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // stream progressed or finished
+        }
     }
 
     private Task<T> RunOnUiAsync<T>(Func<Task<T>> action) =>

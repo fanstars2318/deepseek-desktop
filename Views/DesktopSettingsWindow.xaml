@@ -30,35 +30,7 @@
       <StackPanel>
         <TextBlock Text="DeepSeek 设置" Style="{StaticResource DsPageTitle}"/>
         <TextBlock Style="{StaticResource DsPageSubtitle}"
-                   Text="DeepSeek-TUI Agent、本地 Chat2API 与 MCP"/>
-
-        <TextBlock Text="Agent 对话存储" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,10"/>
-        <Border Style="{StaticResource DsCard}" Margin="{StaticResource DsSectionGap}">
-          <StackPanel>
-            <TextBlock x:Name="AgentStorageStatsText" Style="{StaticResource DsHint}" Margin="0,0,0,12"/>
-            <Grid>
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
-              <StackPanel Grid.Column="0">
-                <TextBlock Text="自动删除超过" Style="{StaticResource DsCaption}"/>
-                <ComboBox x:Name="AgentRetentionCombo" Style="{StaticResource DsComboBox}"/>
-              </StackPanel>
-              <StackPanel Grid.Column="2">
-                <TextBlock Text="存储上限 (GB，0=不限)" Style="{StaticResource DsCaption}"/>
-                <TextBox x:Name="AgentMaxGbBox" Style="{StaticResource DsTextBox}"/>
-              </StackPanel>
-            </Grid>
-            <CheckBox x:Name="AgentAutoCleanupCheck" Content="保存与启动时自动清理（按上述规则）"
-                      Margin="0,14,0,0" Style="{StaticResource DsCheckBox}"/>
-            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-              <Button Content="立即清理" Click="AgentCleanupNow_Click" Style="{StaticResource DsGhostButton}" MinWidth="88" Margin="0,0,8,0"/>
-              <Button Content="打开存储目录" Click="OpenAgentStorage_Click" Style="{StaticResource DsGhostButton}" MinWidth="108"/>
-            </StackPanel>
-          </StackPanel>
-        </Border>
+                   Text="内嵌 Chat2API · DeepSeek-TUI Agent · MCP"/>
 
         <TextBlock Text="Chat2API 与 Agent" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,10"/>
         <Border Style="{StaticResource DsCard}" Margin="{StaticResource DsSectionGap}">
@@ -101,9 +73,7 @@
               <TextBox x:Name="MaxSubStepsBox" Style="{StaticResource DsTextBox}"/>
             </StackPanel>
             <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,16,0,0">
-              <Button Content="Chat2API 管理…" Click="ManageChat2Api_Click"
-                      Style="{StaticResource DsGhostButton}" HorizontalAlignment="Left" MinWidth="160"/>
-              <TextBlock x:Name="Chat2ApiSummaryText" Style="{StaticResource DsHint}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+              <TextBlock x:Name="Chat2ApiSummaryText" Style="{StaticResource DsHint}" Margin="0,0,0,0" TextWrapping="Wrap"/>
             </StackPanel>
           </Grid>
         </Border>

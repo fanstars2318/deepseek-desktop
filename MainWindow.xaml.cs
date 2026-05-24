@@ -13,10 +13,7 @@ public partial class MainWindow : System.Windows.Window
 {
     public const string DeepSeekUrl = AppNavigation.DeepSeekUrl;
     public const string AgentPageUrl = AppNavigation.AgentPageUrl;
-    private static readonly string UserDataFolder = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "DeepSeekEdge",
-        "User Data");
+    private static readonly string UserDataFolder = DeepSeekDesktopApp.WebViewUserDataDirectory;
 
     private bool _webViewReady;
     private bool _isExiting;
@@ -80,6 +77,7 @@ public partial class MainWindow : System.Windows.Window
             core.Settings.AreDevToolsEnabled = true;
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.IsZoomControlEnabled = true;
+            core.Settings.IsWebMessageEnabled = true;
 
             _webHost = new DesktopWebHost(WebView, AgentWebView);
             _webHost.AttachApiBridge(_apiBridgeHost);
@@ -88,6 +86,7 @@ public partial class MainWindow : System.Windows.Window
             _agentHost.SetOwner(this);
             _agentHost.NavigateToUrl = NavigateWebAsync;
             _agentHost.Start();
+            ShutdownCoordinator.Register(_agentHost, _localApi);
 
             var savedConfig = ConfigStore.Load();
             if (!string.IsNullOrWhiteSpace(savedConfig.WebUserToken))
@@ -106,12 +105,26 @@ public partial class MainWindow : System.Windows.Window
             var agentCore = AgentWebView.CoreWebView2;
             if (agentCore is not null)
             {
+                agentCore.Settings.IsWebMessageEnabled = true;
                 agentCore.NavigationCompleted += OnAgentNavigationCompleted;
                 agentCore.DocumentTitleChanged += OnDocumentTitleChanged;
             }
 
             _webViewReady = true;
             LoadingOverlay.Visibility = Visibility.Collapsed;
+
+            if (DeepSeekDesktopApp.IsEnvEnabled(
+                    DeepSeekDesktopApp.VerifyWorkModeEnvVar,
+                    DeepSeekDesktopApp.LegacyVerifyWorkModeEnvVar))
+                ScheduleWorkModeSelfTest();
+            else if (DeepSeekDesktopApp.IsEnvEnabled(
+                         DeepSeekDesktopApp.VerifyAgentEnvVar,
+                         DeepSeekDesktopApp.LegacyVerifyAgentEnvVar))
+                ScheduleAgentHelloSelfTest();
+            else if (DeepSeekDesktopApp.IsEnvEnabled(
+                         DeepSeekDesktopApp.VerifyShutdownEnvVar,
+                         DeepSeekDesktopApp.VerifyShutdownEnvVar))
+                ScheduleShutdownVerifyExit();
         }
         catch (Exception ex)
         {
@@ -178,26 +191,9 @@ public partial class MainWindow : System.Windows.Window
         _tray?.Dispose();
         _tray = null;
 
-        _localApi?.Dispose();
-        _localApi = null;
-
-        var host = _agentHost;
         _agentHost = null;
-        if (host is not null)
-        {
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                    await host.DisposeAsync().AsTask().WaitAsync(cts.Token);
-                }
-                catch
-                {
-                    // MCP 断开超时不阻止退出
-                }
-            });
-        }
+        ShutdownCoordinator.RunExitCleanup();
+        _localApi = null;
     }
 
     private void ExitApplication()
@@ -252,17 +248,22 @@ public partial class MainWindow : System.Windows.Window
 
         if (AppNavigation.IsAgentPage(url))
         {
-            if (_agentHost is not null)
-                await _agentHost.SyncTokenFromChatPageAsync();
             await _webHost.SwitchToUrlAsync(url);
+            await _webHost.WorkMode.ShowAgentSurfaceAsync();
+            await _webHost.WorkMode.BroadcastImmediateAsync();
+            _webHost.WorkMode.ScheduleBroadcastRetries();
             if (_agentHost is not null)
-                await _agentHost.OnAgentNavigationCompletedAsync();
+            {
+                _ = _agentHost.SyncTokenFromChatPageAsync();
+                _ = _agentHost.OnAgentNavigationCompletedAsync();
+            }
             return;
         }
 
         await _webHost.SwitchToUrlAsync(url);
-        if (_webHost is { IsAgentVisible: false })
-            await _webHost.TriggerChatInjectAsync(forceReset: false);
+        await _webHost.WorkMode.ShowChatSurfaceAsync();
+        await _webHost.WorkMode.BroadcastImmediateAsync();
+        _webHost.WorkMode.ScheduleBroadcastRetries();
     }
 
     private void OnSpaNavigation(object? sender, object e)
@@ -317,6 +318,147 @@ public partial class MainWindow : System.Windows.Window
             Title = title;
         else
             Title = $"DeepSeek - {title}";
+    }
+
+    private void ScheduleWorkModeSelfTest()
+    {
+        _ = Task.Run(async () =>
+        {
+            for (var attempt = 0; attempt < 40; attempt++)
+            {
+                await Task.Delay(1000);
+                var ready = false;
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    ready = _webViewReady && _webHost is { AgentPageReady: true };
+                });
+                if (!ready) continue;
+
+                await Dispatcher.InvokeAsync(async () =>
+                {
+                    if (_agentHost is null || _webHost is null) return;
+                    WorkModeTrace.Write("SelfTest: ApplyWorkMode agent");
+                    await _agentHost.VerifyWorkModeSwitchAsync("agent");
+                    await Task.Delay(1200);
+                    WorkModeTrace.Write($"SelfTest: after agent IsAgentVisible={_webHost.IsAgentVisible}");
+
+                    await _agentHost.VerifyWorkModeSwitchAsync("chat");
+                    await Task.Delay(1200);
+                    WorkModeTrace.Write($"SelfTest: after chat IsAgentVisible={_webHost.IsAgentVisible}");
+
+                    var core = WebView.CoreWebView2;
+                    if (core is not null)
+                    {
+                        await core.ExecuteScriptAsync(
+                            "(function(){try{"
+                            + "if(window.DsWorkMode&&window.DsWorkMode.requestToggle){window.DsWorkMode.requestToggle({});return;}"
+                            + "if(window.chrome&&window.chrome.webview){"
+                            + "window.chrome.webview.postMessage(JSON.stringify({type:'toggleWorkMode'}));}"
+                            + "}catch(e){console.warn(e);}})();");
+                        await Task.Delay(1500);
+                        WorkModeTrace.Write($"SelfTest: after JS toggle IsAgentVisible={_webHost.IsAgentVisible}");
+                    }
+                });
+                return;
+            }
+
+            WorkModeTrace.Write("SelfTest: timeout waiting for web ready");
+        });
+    }
+
+    private void ScheduleAgentHelloSelfTest()
+    {
+        _ = Task.Run(async () =>
+        {
+            for (var attempt = 0; attempt < 120; attempt++)
+            {
+                await Task.Delay(1000);
+                var ready = false;
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    ready = _webViewReady && _webHost is { AgentPageReady: true };
+                });
+                if (!ready) continue;
+
+                try
+                {
+                    await Dispatcher.InvokeAsync(async () =>
+                    {
+                        if (_agentHost is null || _webHost is null) return;
+                        WorkModeTrace.Write("AgentSelfTest: web ready, warming bridge");
+                        await _agentHost.WarmChat2ApiBridgeAsync();
+                        await _agentHost.EnsureEmbeddedStackLinkedAsync();
+                        _agentHost.ReloadConfig();
+                        var cfg = ConfigStore.Load();
+                        if (string.IsNullOrWhiteSpace(cfg.WebUserToken))
+                        {
+                            WorkModeTrace.Write("AgentSelfTest: FAIL no webUserToken (login required)");
+                            Environment.ExitCode = 2;
+                            Application.Current.Shutdown();
+                            return;
+                        }
+
+                        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                        await _agentHost.VerifyAgentHelloAsync(cts.Token);
+                        Environment.ExitCode = 0;
+                        Application.Current.Shutdown();
+                    });
+                }
+                catch (Exception ex)
+                {
+                    WorkModeTrace.Write("AgentSelfTest: FAIL " + ex.Message);
+                    Environment.ExitCode = 1;
+                    await Dispatcher.InvokeAsync(() => Application.Current.Shutdown());
+                }
+
+                return;
+            }
+
+            WorkModeTrace.Write("AgentSelfTest: timeout waiting for web ready");
+            Environment.ExitCode = 3;
+            await Dispatcher.InvokeAsync(() => Application.Current.Shutdown());
+        });
+    }
+
+    private void ScheduleShutdownVerifyExit()
+    {
+        _ = Task.Run(async () =>
+        {
+            for (var attempt = 0; attempt < 90; attempt++)
+            {
+                await Task.Delay(1000);
+                var ready = false;
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    ready = _webViewReady && _agentHost is not null;
+                });
+                if (!ready) continue;
+
+                try
+                {
+                    await Dispatcher.InvokeAsync(async () =>
+                    {
+                        if (_agentHost is null) return;
+                        WorkModeTrace.Write("ShutdownVerify: warming embedded stack");
+                        await _agentHost.EnsureEmbeddedStackLinkedAsync();
+                        WorkModeTrace.Write("ShutdownVerify: exiting gracefully");
+                        ExitApplication();
+                    });
+                }
+                catch (Exception ex)
+                {
+                    WorkModeTrace.Write("ShutdownVerify: FAIL " + ex.Message);
+                    Environment.ExitCode = 1;
+                    await Dispatcher.InvokeAsync(() => Application.Current.Shutdown());
+                }
+
+                return;
+            }
+
+            WorkModeTrace.Write("ShutdownVerify: timeout waiting for web ready");
+            Environment.ExitCode = 3;
+            await Dispatcher.InvokeAsync(() => Application.Current.Shutdown());
+        });
     }
 
     private static void OpenExternal(string url)

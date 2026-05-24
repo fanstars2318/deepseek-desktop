@@ -2,6 +2,11 @@
 bin/
 obj/
 publish/
+publish-test/
+publish-wpf/
+
+# IDE (local launch configs)
+.vscode/
 
 # IDE
 .vs/
@@ -22,6 +27,9 @@ appsettings.*.json
 # Tool build outputs
 tools/**/bin/
 tools/**/obj/
+
+# DeepSeek-TUI submodule build output
+third-party/DeepSeek-TUI/target/
 
 # DeepSeek-TUI binaries (build.ps1 downloads or -UseLocalTui)
 Assets/tools/*.exe

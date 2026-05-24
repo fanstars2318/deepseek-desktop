@@ -7,6 +7,9 @@ using DeepSeekBrowser.Models;
 
 namespace DeepSeekBrowser.Services;
 
+/// <summary>
+/// 可选的外部 OpenAI 兼容 HTTP API（供本机第三方工具调用）。
+/// </summary>
 public sealed class LocalOpenAiServer : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -20,26 +23,68 @@ public sealed class LocalOpenAiServer : IDisposable
     private HttpListener? _listener;
     private CancellationTokenSource? _cts;
     private AppConfig _config = new();
+    private int _agentScopeDepth;
 
     public LocalOpenAiServer(WebInjectService web) => _web = web;
 
-    public string BaseUrl => $"http://127.0.0.1:{_config.LocalApiPort}/v1";
+    public string BaseUrl => InternalChatChannel.GetExternalApiBaseUrl(_config);
+
+    public bool IsListening => _listener is { IsListening: true };
+
+    /// <summary>Agent 运行期间为 TUI 子进程提供临时 loopback 转发（任务结束即停）。</summary>
+    public void EnsureAgentScopedListening()
+    {
+        Interlocked.Increment(ref _agentScopeDepth);
+        if (!IsListening)
+            StartInternal(allowAgentScope: true);
+    }
+
+    public void ReleaseAgentScopedListening()
+    {
+        if (Interlocked.Decrement(ref _agentScopeDepth) > 0)
+            return;
+        if (_agentScopeDepth < 0)
+            Interlocked.Exchange(ref _agentScopeDepth, 0);
+        if (!_config.EnableExternalOpenAiApi)
+            Stop();
+    }
+
+    public void EnsureExternalApiListening()
+    {
+        if (!_config.EnableExternalOpenAiApi)
+            return;
+        if (!IsListening)
+            StartInternal(allowAgentScope: false);
+    }
+
+    public IReadOnlyList<Chat2ApiSessionInfo> ListSessions() => _sessions.ListSessions(_config);
+
+    public bool DeleteSession(string sessionId) => _sessions.Delete(sessionId);
 
     public void UpdateConfig(AppConfig config)
     {
-        var portChanged = _config.LocalApiPort != config.LocalApiPort;
+        var portChanged = InternalChatChannel.ResolveExternalApiPort(_config) !=
+                          InternalChatChannel.ResolveExternalApiPort(config);
+        var wasEnabled = _config.EnableExternalOpenAiApi;
         _config = config;
         Chat2ApiCompat.EnsureDefaultMappings(_config);
-        if (portChanged && _listener is { IsListening: true })
-            Start();
+        if (!config.EnableExternalOpenAiApi && _agentScopeDepth == 0)
+            Stop();
+        else if ((portChanged || !wasEnabled || _agentScopeDepth > 0) && _listener is { IsListening: true })
+            StartInternal(allowAgentScope: _agentScopeDepth > 0 || config.EnableExternalOpenAiApi);
     }
 
-    public void Start()
+    public void Start() => StartInternal(allowAgentScope: _agentScopeDepth > 0 || _config.EnableExternalOpenAiApi);
+
+    private void StartInternal(bool allowAgentScope)
     {
+        if (!allowAgentScope && !_config.EnableExternalOpenAiApi)
+            return;
         Stop();
         _cts = new CancellationTokenSource();
         _listener = new HttpListener();
-        _listener.Prefixes.Add($"http://127.0.0.1:{_config.LocalApiPort}/");
+        var port = InternalChatChannel.ResolveExternalApiPort(_config);
+        _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
         _listener.Start();
         _ = Task.Run(() => ListenLoopAsync(_cts.Token));
     }
@@ -231,6 +276,16 @@ public sealed class LocalOpenAiServer : IDisposable
         var prevRefIds = _web.AgentRefFileIds;
         _web.AgentRefFileIds = req.RefFileIds;
 
+        var dbg = AgentDebugLogger.Current;
+        var chatSw = Chat2ApiFeatureScope.HasActiveAgentRun ? System.Diagnostics.Stopwatch.StartNew() : null;
+        var firstChunk = true;
+            dbg?.LogChat2ApiRequest(
+            req.ResolvedModel,
+            req.Thinking,
+            req.WebSearch,
+            req.Messages.Count,
+            stream: true);
+
         WebChatResult? finalResult = null;
         try
         {
@@ -243,6 +298,12 @@ public sealed class LocalOpenAiServer : IDisposable
                                _config.WebUserToken,
                                req.WebChatSessionId))
             {
+                if (firstChunk && ev is not WebChatStreamDone)
+                {
+                    firstChunk = false;
+                    dbg?.Write("CHAT2API", "流式首包到达");
+                }
+
                 if (ev is WebChatStreamDone done)
                     finalResult = done.Result;
                 yield return ev;
@@ -251,6 +312,18 @@ public sealed class LocalOpenAiServer : IDisposable
         finally
         {
             _web.AgentRefFileIds = prevRefIds;
+        }
+
+        if (chatSw is not null)
+        {
+            chatSw.Stop();
+            var chars = finalResult?.Content?.Length ?? 0;
+            var reasoning = finalResult?.ReasoningContent?.Length ?? 0;
+            dbg?.LogChat2ApiDone(
+                req.ResolvedModel,
+                chatSw.ElapsedMilliseconds,
+                chars + reasoning,
+                reasoning > 0 ? $"reasoningChars={reasoning}" : null);
         }
 
         if (finalResult is not null &&
@@ -275,6 +348,15 @@ public sealed class LocalOpenAiServer : IDisposable
         if (string.IsNullOrWhiteSpace(_config.WebUserToken))
             throw new InvalidOperationException("请先在 DeepSeek 网页登录，本地 API 将自动使用网页会话，无需填写 API Key。");
 
+        var dbg = AgentDebugLogger.Current;
+        var chatSw = Chat2ApiFeatureScope.HasActiveAgentRun ? System.Diagnostics.Stopwatch.StartNew() : null;
+        dbg?.LogChat2ApiRequest(
+            req.ResolvedModel,
+            req.Thinking,
+            req.WebSearch,
+            req.Messages.Count,
+            stream: false);
+
         WebChatResult result;
         try
         {
@@ -290,6 +372,18 @@ public sealed class LocalOpenAiServer : IDisposable
         finally
         {
             _web.AgentRefFileIds = prevRefIds;
+        }
+
+        if (chatSw is not null)
+        {
+            chatSw.Stop();
+            var chars = result.Content?.Length ?? 0;
+            var reasoning = result.ReasoningContent?.Length ?? 0;
+            dbg?.LogChat2ApiDone(
+                req.ResolvedModel,
+                chatSw.ElapsedMilliseconds,
+                chars + reasoning,
+                reasoning > 0 ? $"reasoningChars={reasoning}" : null);
         }
 
         if (!string.IsNullOrWhiteSpace(req.SessionId) &&

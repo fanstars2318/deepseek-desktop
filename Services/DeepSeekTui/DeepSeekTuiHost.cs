@@ -100,7 +100,7 @@ public sealed class DeepSeekTuiHost : IAsyncDisposable
         psi.Environment["DEEPSEEK_BASE_URL"] = $"http://127.0.0.1:{port}/v1";
         psi.Environment["DEEPSEEK_API_KEY"] = !string.IsNullOrWhiteSpace(config.WebUserToken)
             ? config.WebUserToken
-            : (!string.IsNullOrWhiteSpace(config.DeepSeekApiKey) ? config.DeepSeekApiKey : "edge-local");
+            : (!string.IsNullOrWhiteSpace(config.DeepSeekApiKey) ? config.DeepSeekApiKey : DeepSeekDesktopApp.LocalApiKeyFallback);
         psi.Environment["DEEPSEEK_MODEL"] = "deepseek-v4-pro";
         if (!string.IsNullOrWhiteSpace(runtimeBearerToken))
             psi.Environment["DEEPSEEK_RUNTIME_TOKEN"] = runtimeBearerToken.Trim();
@@ -182,31 +182,26 @@ public sealed class DeepSeekTuiHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        Process? proc;
         lock (_gate)
         {
+            proc = _process;
             TryStopLocked();
         }
 
+        DeepSeekTuiProcessCleanup.ShutdownAll(ConfigStore.Load(), proc);
         await Task.CompletedTask;
     }
 
     private void TryStopLocked()
     {
-        try
-        {
-            if (_process is { HasExited: false })
-                _process.Kill(entireProcessTree: true);
-        }
-        catch
-        {
-            // ignore
-        }
-        finally
-        {
-            _process?.Dispose();
-            _process = null;
-        }
+        Process? proc = _process;
+        _process = null;
+        DeepSeekTuiProcessCleanup.KillManagedProcess(proc);
     }
+
+    private static void TryKillListenersOnPort(int port) =>
+        DeepSeekTuiProcessCleanup.KillPortListeners(port);
 
     private static string Trim(string s, int max) =>
         s.Length <= max ? s : s[..max] + "…";

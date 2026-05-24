@@ -1,0 +1,104 @@
+using System.IO;
+using System.Text;
+using System.Text.Json;
+using DeepSeekBrowser.Models;
+
+namespace DeepSeekBrowser.Services;
+
+public static class ConfigStore
+{
+    private static readonly object SaveGate = new();
+
+    private static string ConfigDir
+    {
+        get
+        {
+            DeepSeekDesktopApp.EnsureLegacyAppDataMigrated();
+            return DeepSeekDesktopApp.LocalAppDataRoot;
+        }
+    }
+
+    public static string ConfigDirectory => ConfigDir;
+    public static string ConfigFilePath => Path.Combine(ConfigDir, "config.json");
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    public static AppConfig Load()
+    {
+        lock (SaveGate)
+        {
+            try
+            {
+                if (!File.Exists(ConfigFilePath))
+                    return new AppConfig();
+
+                var json = File.ReadAllText(ConfigFilePath);
+                var cfg = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+                MigrateLegacyConfig(cfg);
+                return cfg;
+            }
+            catch
+            {
+                return new AppConfig();
+            }
+        }
+    }
+
+    private static void MigrateLegacyConfig(AppConfig cfg)
+    {
+        // 5111 为旧版默认代理端口；迁移为进程内通信 + 可选外部 API
+        if (cfg.LocalApiPort == 5111 && !cfg.EnableExternalOpenAiApi)
+            cfg.LocalApiPort = 0;
+    }
+
+    public static void Save(AppConfig config)
+    {
+        lock (SaveGate)
+        {
+            Directory.CreateDirectory(ConfigDir);
+            var json = JsonSerializer.Serialize(config, JsonOptions);
+            WriteAtomic(ConfigFilePath, json);
+        }
+    }
+
+    private static void WriteAtomic(string targetPath, string content)
+    {
+        var temp = targetPath + ".tmp";
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            try
+            {
+                if (File.Exists(temp))
+                    File.Delete(temp);
+
+                File.WriteAllText(temp, content, Encoding.UTF8);
+
+                if (File.Exists(targetPath))
+                    File.Replace(temp, targetPath, null, ignoreMetadataErrors: true);
+                else
+                    File.Move(temp, targetPath);
+
+                return;
+            }
+            catch (IOException) when (attempt < 5)
+            {
+                Thread.Sleep(30 * (attempt + 1));
+            }
+        }
+
+        File.WriteAllText(targetPath, content, Encoding.UTF8);
+        try
+        {
+            if (File.Exists(temp))
+                File.Delete(temp);
+        }
+        catch
+        {
+            // ignore cleanup failure
+        }
+    }
+}

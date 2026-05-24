@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using DeepSeekBrowser.Models;
@@ -25,7 +26,9 @@ public sealed class DeepSeekTuiAgentRunner
         string? existingThreadId,
         Action<string> onLog,
         Action<string>? onAnswerDelta,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<AgentUiActivity>? onActivity = null,
+        Action<string, bool>? onThinking = null)
     {
         DeepSeekTuiConfigSync.Apply(config);
         await _host.EnsureRunningAsync(config, ct).ConfigureAwait(false);
@@ -42,23 +45,19 @@ public sealed class DeepSeekTuiAgentRunner
         var autoApprove = string.Equals(config.AgentApprovalMode, "never", StringComparison.OrdinalIgnoreCase);
         var allowShell = config.AgentAllowShell;
 
-        onLog($"DeepSeek-TUI · {_host.BaseUrl}");
-        onLog($"工作区: {workspace}");
-        onLog($"模式: {mode} · 模型: {model}");
-        onLog("Runtime API 鉴权: 已配置");
-
         var client = new DeepSeekTuiRuntimeClient(_host.BaseUrl, _host.RuntimeBearerToken);
 
         var threadId = string.IsNullOrWhiteSpace(existingThreadId)
             ? await CreateThreadWithAuthRetryAsync(
                 client, config, workspace, mode, model, autoApprove, allowShell, onLog, ct).ConfigureAwait(false)
             : existingThreadId;
-        onLog($"线程: {threadId}");
 
         var answer = new StringBuilder();
         var turnDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var activeTurn = new ActiveTurnRef();
+        var reportedTools = new HashSet<string>(StringComparer.Ordinal);
         Exception? streamError = null;
+        using var streamCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         using var interruptOnCancel = ct.Register(() =>
         {
@@ -73,7 +72,7 @@ public sealed class DeepSeekTuiAgentRunner
                 }
                 catch
                 {
-                    // ignore — stream cancellation will still unwind
+                    // ignore
                 }
             });
         });
@@ -82,9 +81,11 @@ public sealed class DeepSeekTuiAgentRunner
         {
             try
             {
-                await foreach (var ev in client.StreamEventsAsync(threadId, 0, ct).ConfigureAwait(false))
+                await foreach (var ev in client.StreamEventsAsync(threadId, 0, streamCts.Token).ConfigureAwait(false))
                 {
-                    await HandleEventAsync(client, ev, answer, onLog, onAnswerDelta, turnDone, ct)
+                    await HandleEventAsync(
+                            client, ev, workspace, answer, reportedTools, onLog, onAnswerDelta, onActivity, onThinking,
+                            turnDone, streamCts.Token)
                         .ConfigureAwait(false);
                     if (ev.Name is "turn.completed" or "turn.lifecycle")
                     {
@@ -94,6 +95,10 @@ public sealed class DeepSeekTuiAgentRunner
                     }
                 }
             }
+            catch (OperationCanceledException) when (streamCts.IsCancellationRequested)
+            {
+                // turn finished; stop reading long-lived thread stream
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 streamError = ex;
@@ -102,8 +107,9 @@ public sealed class DeepSeekTuiAgentRunner
         }, ct);
 
         await Task.Delay(150, ct).ConfigureAwait(false);
+        AgentDebugLogger.Current?.Write("TUI", $"StartTurn thread={threadId}");
         activeTurn.Id = await client.StartTurnAsync(threadId, prompt, ct).ConfigureAwait(false);
-        onLog($"回合: {activeTurn.Id}");
+        AgentDebugLogger.Current?.Write("TUI", $"Turn started id={activeTurn.Id}");
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromMinutes(30));
@@ -124,7 +130,15 @@ public sealed class DeepSeekTuiAgentRunner
         if (streamError is not null)
             throw streamError;
 
-        await streamTask.ConfigureAwait(false);
+        streamCts.Cancel();
+        try
+        {
+            await streamTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // expected after turn completion
+        }
 
         var text = answer.ToString().Trim();
         return new DeepSeekTuiRunResult(threadId, string.IsNullOrWhiteSpace(text) ? "任务已结束" : text);
@@ -168,55 +182,61 @@ public sealed class DeepSeekTuiAgentRunner
     private async Task HandleEventAsync(
         DeepSeekTuiRuntimeClient client,
         RuntimeSseEvent ev,
+        string workspace,
         StringBuilder answer,
+        HashSet<string> reportedTools,
         Action<string> onLog,
         Action<string>? onAnswerDelta,
+        Action<AgentUiActivity>? onActivity,
+        Action<string, bool>? onThinking,
         TaskCompletionSource turnDone,
         CancellationToken ct)
     {
+        var dbg = AgentDebugLogger.Current;
         switch (ev.Name)
         {
-            case "turn.started":
-                onLog("正努力工作…");
-                break;
             case "item.started":
+            case "item.completed":
             {
                 var itemKind = GetPayloadString(ev.Payload, "kind");
-                var tool = GetPayloadString(ev.Payload, "tool_name") ?? GetPayloadString(ev.Payload, "name");
-                if (itemKind is "tool_call" or "command_execution" && !string.IsNullOrWhiteSpace(tool))
-                    onLog($"工具: {tool}");
-                else if (itemKind is "reasoning")
-                    onLog("正努力工作…");
-                else if (itemKind is "agent_message" or "message")
-                    onLog("正在整理回复…");
+                dbg?.LogSseEvent(ev.Name, itemKind, GetPayloadString(ev.Payload, "status"));
+                if (itemKind is "tool_call" or "command_execution" or "file_change")
+                    TryEmitToolActivity(ev.Payload, workspace, reportedTools, onActivity);
                 break;
             }
             case "item.delta":
             {
                 var delta = GetPayloadString(ev.Payload, "delta");
                 var kind = GetPayloadString(ev.Payload, "kind");
-                if (!string.IsNullOrEmpty(delta) &&
-                    (kind is null or "agent_message" or "message"))
+                if (string.IsNullOrEmpty(delta))
+                    break;
+
+                if (kind is "reasoning" or "thinking")
                 {
+                    onThinking?.Invoke(delta, true);
+                    break;
+                }
+
+                if (kind is null or "agent_message" or "message")
+                {
+                    if (delta.Length > 0 && answer.Length == 0)
+                        dbg?.Write("TUI", "首条 answer delta 到达");
                     answer.Append(delta);
                     onAnswerDelta?.Invoke(delta);
                 }
-
-                break;
-            }
-            case "item.completed":
-            {
-                var kind = GetPayloadString(ev.Payload, "kind");
-                if (kind is "tool_call" or "command_execution")
+                else
                 {
-                    var name = GetPayloadString(ev.Payload, "tool_name")
-                               ?? GetPayloadString(ev.Payload, "name")
-                               ?? kind;
-                    onLog($"工具: {name}");
+                    dbg?.LogSseEvent("item.delta", kind, $"+{delta.Length} chars");
                 }
 
                 break;
             }
+            case "turn.completed":
+                dbg?.LogSseEvent(
+                    ev.Name,
+                    GetPayloadString(ev.Payload, "status"),
+                    GetPayloadString(ev.Payload, "phase"));
+                break;
             case "approval.required":
             {
                 var approvalId = GetPayloadString(ev.Payload, "approval_id")
@@ -226,22 +246,188 @@ public sealed class DeepSeekTuiAgentRunner
                 if (string.IsNullOrWhiteSpace(approvalId))
                     break;
 
-                onLog($"待审批: {tool}");
+                onActivity?.Invoke(new AgentUiActivity("Awaiting approval", tool, desc));
                 var allowed = await _requestApprovalAsync(tool, desc).ConfigureAwait(false);
                 await client.DecideApprovalAsync(approvalId, allowed, ct).ConfigureAwait(false);
-                onLog(allowed ? "已允许" : "已拒绝");
+                onActivity?.Invoke(new AgentUiActivity(allowed ? "Approved" : "Denied", tool, null));
                 break;
             }
             case "item.failed":
             case "turn.lifecycle":
             {
+                dbg?.LogSseEvent(
+                    ev.Name,
+                    GetPayloadString(ev.Payload, "status"),
+                    GetPayloadString(ev.Payload, "phase"));
                 var err = GetPayloadString(ev.Payload, "error")
                           ?? GetPayloadString(ev.Payload, "message");
                 if (!string.IsNullOrWhiteSpace(err))
+                {
+                    dbg?.Write("TUI-ERR", err);
                     onLog("错误: " + err);
+                }
+
                 break;
             }
+            default:
+                dbg?.LogSseEvent(ev.Name, GetPayloadString(ev.Payload, "kind"));
+                break;
         }
+    }
+
+    private static void TryEmitToolActivity(
+        JsonElement payload,
+        string workspace,
+        HashSet<string> reportedTools,
+        Action<AgentUiActivity>? onActivity)
+    {
+        if (onActivity is null)
+            return;
+
+        var tool = GetNestedString(payload, "tool_name", "name", "tool");
+        if (string.IsNullOrWhiteSpace(tool))
+            return;
+
+        var path = GetNestedString(payload, "path", "file", "file_path", "target", "directory");
+        var pattern = GetNestedString(payload, "pattern", "query", "regex", "glob_pattern");
+        var command = GetNestedString(payload, "command", "cmd", "script");
+        var startLine = GetNestedString(payload, "start_line", "line", "offset");
+        var endLine = GetNestedString(payload, "end_line", "limit");
+
+        var key = tool + "|" + (path ?? pattern ?? command ?? "");
+        if (!reportedTools.Add(key))
+            return;
+
+        var activity = FormatToolActivity(tool, path, pattern, command, startLine, endLine, workspace);
+        onActivity(activity);
+    }
+
+    internal static AgentUiActivity FormatToolActivity(
+        string tool,
+        string? path,
+        string? pattern,
+        string? command,
+        string? startLine,
+        string? endLine,
+        string workspace)
+    {
+        var name = tool.Trim();
+        var rel = RelativizePath(path, workspace);
+        var detail = FormatLineRange(startLine, endLine);
+
+        if (name.Contains("read", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "read_file", StringComparison.OrdinalIgnoreCase))
+            return new AgentUiActivity("Read", WrapCode(rel ?? path ?? name), detail);
+
+        if (name.Contains("write", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("edit", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("patch", StringComparison.OrdinalIgnoreCase))
+            return new AgentUiActivity("Edited", WrapCode(rel ?? path ?? name), detail);
+
+        if (name.Contains("grep", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("search", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("rg", StringComparison.OrdinalIgnoreCase))
+        {
+            var target = pattern is not null
+                ? $"`{pattern}`" + (rel is not null ? $" in `{rel}`" : "")
+                : rel ?? name;
+            return new AgentUiActivity("Grepped", target, null);
+        }
+
+        if (name.Contains("list", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(name, "list_dir", StringComparison.OrdinalIgnoreCase))
+            return new AgentUiActivity("Listed", WrapCode(rel ?? path ?? name), null);
+
+        if (name.Contains("glob", StringComparison.OrdinalIgnoreCase))
+            return new AgentUiActivity("Searched", pattern ?? rel ?? name, null);
+
+        if (name.Contains("shell", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("exec", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("bash", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("command", StringComparison.OrdinalIgnoreCase))
+        {
+            var preview = command is not null ? Truncate(command, 72) : name;
+            return new AgentUiActivity("Ran", preview, "terminal");
+        }
+
+        if (name.Contains("fetch", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("http", StringComparison.OrdinalIgnoreCase))
+            return new AgentUiActivity("Fetched", path ?? pattern ?? name, null);
+
+        return new AgentUiActivity("Ran", name, rel);
+    }
+
+    private static string? RelativizePath(string? path, string workspace)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+        try
+        {
+            var full = Path.GetFullPath(path.Trim());
+            var root = Path.GetFullPath(workspace.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            {
+                var rel = full[root.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return string.IsNullOrEmpty(rel) ? Path.GetFileName(full) : rel.Replace('\\', '/');
+            }
+
+            return full.Replace('\\', '/');
+        }
+        catch
+        {
+            return path.Trim().Replace('\\', '/');
+        }
+    }
+
+    private static string? FormatLineRange(string? start, string? end)
+    {
+        if (string.IsNullOrWhiteSpace(start))
+            return null;
+        if (!string.IsNullOrWhiteSpace(end) && end != start)
+            return $"L{start}-{end}";
+        return $"L{start}";
+    }
+
+    private static string? GetNestedString(JsonElement payload, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var v = GetPayloadString(payload, name);
+            if (!string.IsNullOrWhiteSpace(v))
+                return v;
+        }
+
+        if (payload.TryGetProperty("arguments", out var args) && args.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var name in names)
+            {
+                var v = GetPayloadString(args, name);
+                if (!string.IsNullOrWhiteSpace(v))
+                    return v;
+            }
+        }
+
+        if (payload.TryGetProperty("input", out var input) && input.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var name in names)
+            {
+                var v = GetPayloadString(input, name);
+                if (!string.IsNullOrWhiteSpace(v))
+                    return v;
+            }
+        }
+
+        if (payload.TryGetProperty("metadata", out var meta) && meta.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var name in names)
+            {
+                var v = GetPayloadString(meta, name);
+                if (!string.IsNullOrWhiteSpace(v))
+                    return v;
+            }
+        }
+
+        return null;
     }
 
     private static string? GetPayloadString(JsonElement payload, string name)
@@ -259,6 +445,17 @@ public sealed class DeepSeekTuiAgentRunner
             _ => el.GetRawText()
         };
     }
+
+    private static string WrapCode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+        var v = value.Trim();
+        return v.StartsWith('`') ? v : "`" + v + "`";
+    }
+
+    private static string Truncate(string s, int max) =>
+        s.Length <= max ? s : s[..max] + "…";
 }
 
 public sealed record DeepSeekTuiRunResult(string ThreadId, string Answer);

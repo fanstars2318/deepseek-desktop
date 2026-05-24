@@ -1,11 +1,15 @@
 # 从本地 DeepSeek-TUI 源码构建 deepseek.exe + deepseek-tui.exe，并复制到 publish/Assets/tools
 param(
-    [string]$TuiSourcePath = "C:\Users\xiaow\Desktop\DSD\DeepSeek-TUI-main\DeepSeek-TUI-main",
+    [string]$TuiSourcePath = "",
     [string]$ToolsOut = "",
     [switch]$SkipCargo
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $TuiSourcePath) {
+    $TuiSourcePath = Join-Path (Split-Path $PSScriptRoot -Parent) "third-party\DeepSeek-TUI"
+}
 
 function Resolve-RepoRoot([string]$path) {
     if (-not $path) { return $null }

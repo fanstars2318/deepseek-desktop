@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <DefaultItemExcludes>$(DefaultItemExcludes);tools\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tools\**;DeepSeek.Core\**;DeepSeek.Core.Tests\**;DeepSeek.Desktop\**</DefaultItemExcludes>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -18,6 +18,39 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="DeepSeek.Core\DeepSeek.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Models\**\*.cs" />
+    <Compile Remove="Services\ConfigStore.cs" />
+    <Compile Remove="Services\Chat2ApiCompat.cs" />
+    <Compile Remove="Services\ChatMessage.cs" />
+    <Compile Remove="Services\Chat2ApiSessionStore.cs" />
+    <Compile Remove="Services\Chat2ApiHealth.cs" />
+    <Compile Remove="Services\Chat2ApiSseWriter.cs" />
+    <Compile Remove="Services\Chat2ApiEmbedded.cs" />
+    <Compile Remove="Services\Chat2ApiFeatureScope.cs" />
+    <Compile Remove="Services\Chat2ApiProviderService.cs" />
+    <Compile Remove="Services\AppNavigation.cs" />
+    <Compile Remove="Services\LocalApiKeyService.cs" />
+    <Compile Remove="Services\AgentDebugLogger.cs" />
+    <Compile Remove="Services\AgentMessageTrimmer.cs" />
+    <Compile Remove="Services\AgentModeHelper.cs" />
+    <Compile Remove="Services\AgentSessionJson.cs" />
+    <Compile Remove="Services\AgentWorkspace.cs" />
+    <Compile Remove="Services\AdaptiveOutputTokenEscalation.cs" />
+    <Compile Remove="Services\McpHub.cs" />
+    <Compile Remove="Services\McpRemoteEndpoint.cs" />
+    <Compile Remove="Services\McpToolRegistry.cs" />
+    <Compile Remove="Services\WebChatResult.cs" />
+    <Compile Remove="Services\WebChatStreamEvent.cs" />
+    <Compile Remove="Services\WebViewPageKind.cs" />
+    <Compile Remove="Services\WorkModeTrace.cs" />
+    <Compile Remove="Services\DeepSeekTui\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="Assets\deepseek.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -25,6 +58,12 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\agent\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\chat2api\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\chat2api-ui\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\tools\**\*">

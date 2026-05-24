@@ -7,12 +7,13 @@ using Microsoft.Web.WebView2.Wpf;
 
 namespace DeepSeekBrowser.Services;
 
-public sealed class WebInjectService
+public sealed class WebInjectService : IWebInjectBridge
 {
     private readonly WebView2 _webView;
     private readonly WebViewPageKind _pageKind;
     private WebChatBridgeHost? _apiBridge;
     private string? _bridgeScript;
+    private string? _workModeClientScript;
     private string? _overlayScript;
     private string? _overlayCss;
 
@@ -29,7 +30,7 @@ public sealed class WebInjectService
 
     public void AttachApiBridge(WebChatBridgeHost apiBridge) => _apiBridge = apiBridge;
 
-    public Task SyncApiBridgeTokenAsync(string? webUserToken) =>
+    public Task SyncApiBridgeTokenAsync(string? webUserToken, CancellationToken ct = default) =>
         _apiBridge?.SyncWebUserTokenAsync(webUserToken) ?? Task.CompletedTask;
 
     public Task EnsureApiBridgeReadyAsync(CancellationToken ct = default) =>
@@ -81,7 +82,18 @@ public sealed class WebInjectService
                 CoreWebView2HostResourceAccessKind.Allow);
         }
 
+        var chat2apiDir = Path.Combine(AppContext.BaseDirectory, "Assets", "chat2api");
+        if (Directory.Exists(chat2apiDir))
+        {
+            core.SetVirtualHostNameToFolderMapping(
+                "ds-chat2api.local",
+                chat2apiDir,
+                CoreWebView2HostResourceAccessKind.Allow);
+        }
+
         await core.AddScriptToExecuteOnDocumentCreatedAsync(_bridgeScript!);
+        if (!string.IsNullOrEmpty(_workModeClientScript))
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(_workModeClientScript);
         if (!string.IsNullOrEmpty(_overlayCss))
         {
             var cssEsc = JsonSerializer.Serialize(_overlayCss);
@@ -166,20 +178,21 @@ public sealed class WebInjectService
             + "请从源码目录运行 build.ps1 重新部署，或不要只复制 DeepSeek.exe。");
     }
 
-    private static readonly Lazy<(string Bridge, string Overlay, string Css)> InjectAssets = new(() =>
+    private static readonly Lazy<(string Bridge, string WorkModeClient, string Overlay, string Css)> InjectAssets = new(() =>
     {
         var baseDir = ResolveInjectDir();
         var themePath = Path.Combine(baseDir, "ds-theme.css");
         var overlayCssPath = Path.Combine(baseDir, "overlay.css");
         if (!File.Exists(overlayCssPath))
             throw new FileNotFoundException(
-                $"缺少 {overlayCssPath}。请重新运行 build.ps1 完整部署到桌面 DeepSeek-Edge。", overlayCssPath);
+                $"缺少 {overlayCssPath}。请重新运行 build.ps1 完整部署到桌面 DeepSeek_desktop。", overlayCssPath);
 
         var overlayCss = File.ReadAllText(overlayCssPath);
         if (File.Exists(themePath))
             overlayCss = File.ReadAllText(themePath) + "\n" + overlayCss;
         return (
             File.ReadAllText(Path.Combine(baseDir, "bridge.js")),
+            File.ReadAllText(Path.Combine(baseDir, "work-mode-client.js")),
             File.ReadAllText(Path.Combine(baseDir, "overlay.js")),
             overlayCss);
     });
@@ -188,6 +201,7 @@ public sealed class WebInjectService
     {
         var assets = InjectAssets.Value;
         _bridgeScript = assets.Bridge;
+        _workModeClientScript = assets.WorkModeClient;
         _overlayScript = assets.Overlay;
         _overlayCss = assets.Css;
     }
@@ -210,6 +224,33 @@ public sealed class WebInjectService
     public Task PostToPageAsync(object message) =>
         RunOnUiAsync(() => PostToPageOnUiAsync(message));
 
+    /// <summary>向 WebView 所有 frame 广播 postMessage（内嵌 iframe 的 Chat2API / 设置页使用）。</summary>
+    public Task PostWebMessageAsync(object message) =>
+        RunOnUiAsync(() => PostWebMessageOnUiAsync(message));
+
+    private Task PostWebMessageOnUiAsync(object message)
+    {
+        if (_webView.CoreWebView2 is null) return Task.CompletedTask;
+        _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(message, AgentSessionJson.Options));
+        return Task.CompletedTask;
+    }
+
+    public Task PushWorkModeStateAsync(WorkModeStatePayload state) =>
+        RunOnUiAsync(() => PushWorkModeStateOnUiAsync(state));
+
+    private async Task PushWorkModeStateOnUiAsync(WorkModeStatePayload state)
+    {
+        if (_webView.CoreWebView2 is null) return;
+        var json = JsonSerializer.Serialize(state, AgentSessionJson.Options);
+        await _webView.CoreWebView2.ExecuteScriptAsync(
+            "(function(m){try{"
+            + "if(window.DsWorkMode&&window.DsWorkMode.applyState){window.DsWorkMode.applyState(m);return;}"
+            + "if(typeof window.__dsApplyWorkModeState==='function')window.__dsApplyWorkModeState(m);"
+            + "else{(window.__dsPendingNativeMessages=window.__dsPendingNativeMessages||[]).push(m);}"
+            + "}catch(e){console.warn('[DeepSeek Desktop] workModeState',e);}"
+            + "})(" + json + ");");
+    }
+
     private async Task PostToPageOnUiAsync(object message)
     {
         if (_webView.CoreWebView2 is null) return;
@@ -220,7 +261,7 @@ public sealed class WebInjectService
             + "if(typeof window.dsDesktopOnMessage==='function'){window.dsDesktopOnMessage(m);return;}"
             + "window.__dsPendingNativeMessages=window.__dsPendingNativeMessages||[];"
             + "window.__dsPendingNativeMessages.push(m);"
-            + "}catch(e){console.warn('[DeepSeek Edge] native msg',e);}"
+            + "}catch(e){console.warn('[DeepSeek Desktop] native msg',e);}"
             + "})(" + json + ");");
     }
 

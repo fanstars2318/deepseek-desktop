@@ -1,4 +1,6 @@
 using System.IO;
+using System.Text;
+using System.Text.Json;
 using DeepSeekBrowser.Models;
 using DeepSeekBrowser.Services.DeepSeekTui;
 
@@ -10,6 +12,12 @@ namespace DeepSeekBrowser.Services;
 /// </summary>
 public static class Chat2ApiProviderService
 {
+    private static readonly object IntegrationWriteLock = new();
+    private static readonly Mutex IntegrationFileMutex =
+        new(false, DeepSeekDesktopApp.IntegrationMutexName);
+    private static string? _lastIntegrationJson;
+    private static long _lastIntegrationWriteTick;
+
     public sealed record ProviderSnapshot(
         string Id,
         string Name,
@@ -39,7 +47,7 @@ public static class Chat2ApiProviderService
         var tuiPort = config.DeepSeekTuiRuntimePort > 0 ? config.DeepSeekTuiRuntimePort : DeepSeekTuiHost.DefaultPort;
 
         return new ProviderSnapshot(
-            Id: "deepseek-web",
+            Id: Chat2ApiEmbedded.ProviderId,
             Name: "DeepSeek",
             Type: "builtin",
             Description: "DeepSeek 智能对话助手，经本地 Chat2API 使用网页登录会话，支持深度思考与联网搜索",
@@ -70,62 +78,130 @@ public static class Chat2ApiProviderService
                 return key.Key;
         }
 
-        return "edge-local";
+        return DeepSeekDesktopApp.LocalApiKeyFallback;
     }
 
-    public static string IntegrationFilePath =>
-        Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "DeepSeekEdge",
-            "chat2api-tui-integration.json");
+    public static string IntegrationFilePath => DeepSeekDesktopApp.IntegrationFilePath;
 
     public static void WriteIntegrationFile(AppConfig config, Chat2ApiHealth? health = null)
     {
-        var snap = Build(config, health);
-        var dir = Path.GetDirectoryName(snap.IntegrationFilePath)!;
-        Directory.CreateDirectory(dir);
-
-        var payload = new
+        try
         {
-            updated_at = DateTimeOffset.UtcNow.ToString("o"),
-            provider = new
+            var snap = Build(config, health);
+            var payload = new
             {
-                snap.Id,
-                snap.Name,
-                snap.Type,
-                snap.Online,
-                snap.AuthType,
-                snap.ModelCount
-            },
-            chat2api = new
-            {
-                base_url = snap.Chat2ApiBaseUrl,
-                api_key = snap.ApiKeyForClients,
-                auth_header = $"Bearer {snap.ApiKeyForClients}",
-                docs = new[]
+                updated_at = DateTimeOffset.UtcNow.ToString("o"),
+                provider = new
                 {
-                    "https://github.com/xiaoY233/Chat2API",
-                    "https://api-docs.deepseek.com/zh-cn/"
-                }
-            },
-            deepseek_tui = new
-            {
-                runtime_url = snap.TuiRuntimeUrl,
-                serve_http = $"{snap.TuiRuntimeUrl} (deepseek serve --http)",
-                config_path = snap.TuiConfigPath,
-                env = new
-                {
-                    DEEPSEEK_BASE_URL = snap.Chat2ApiBaseUrl,
-                    DEEPSEEK_API_KEY = snap.ApiKeyForClients,
-                    DEEPSEEK_MODEL = "deepseek-v4-pro"
+                    snap.Id,
+                    snap.Name,
+                    snap.Type,
+                    snap.Online,
+                    snap.AuthType,
+                    snap.ModelCount
                 },
-                docs = "https://deepseek-tui.com/zh"
-            }
-        };
+                chat2api = new
+                {
+                    base_url = snap.Chat2ApiBaseUrl,
+                    api_key = snap.ApiKeyForClients,
+                    auth_header = $"Bearer {snap.ApiKeyForClients}",
+                    docs = new[]
+                    {
+                        Chat2ApiEmbedded.DocsUrl,
+                        "https://api-docs.deepseek.com/zh-cn/"
+                    }
+                },
+                deepseek_tui = new
+                {
+                    runtime_url = snap.TuiRuntimeUrl,
+                    serve_http = $"{snap.TuiRuntimeUrl} (deepseek serve --http)",
+                    config_path = snap.TuiConfigPath,
+                    env = new
+                    {
+                        DEEPSEEK_BASE_URL = snap.Chat2ApiBaseUrl,
+                        DEEPSEEK_API_KEY = snap.ApiKeyForClients,
+                        DEEPSEEK_MODEL = "deepseek-v4-pro"
+                    },
+                    docs = "https://deepseek-tui.com/zh"
+                }
+            };
 
-        var json = System.Text.Json.JsonSerializer.Serialize(payload,
-            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(snap.IntegrationFilePath, json);
+            var json = JsonSerializer.Serialize(payload,
+                new JsonSerializerOptions { WriteIndented = true });
+            WriteIntegrationFileText(snap.IntegrationFilePath, json);
+        }
+        catch (IOException)
+        {
+            // 多实例/杀毒扫描同时占用时跳过，避免启动弹错；下次刷新会重试
+        }
+    }
+
+    private static void WriteIntegrationFileText(string path, string json)
+    {
+        lock (IntegrationWriteLock)
+        {
+            var now = Environment.TickCount64;
+            if (json == _lastIntegrationJson && now - _lastIntegrationWriteTick < 400)
+                return;
+
+            var acquired = false;
+            try
+            {
+                try
+                {
+                    acquired = IntegrationFileMutex.WaitOne(3000);
+                }
+                catch (AbandonedMutexException)
+                {
+                    acquired = true;
+                }
+
+                WriteAllTextAtomic(path, json);
+                _lastIntegrationJson = json;
+                _lastIntegrationWriteTick = now;
+            }
+            finally
+            {
+                if (acquired)
+                {
+                    try { IntegrationFileMutex.ReleaseMutex(); }
+                    catch { /* ignore */ }
+                }
+            }
+        }
+    }
+
+    private static void WriteAllTextAtomic(string path, string content)
+    {
+        var dir = Path.GetDirectoryName(path)!;
+        Directory.CreateDirectory(dir);
+        var tmp = path + ".tmp";
+        const int maxAttempts = 8;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            try
+            {
+                File.WriteAllText(tmp, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                if (File.Exists(path))
+                    File.Replace(tmp, path, destinationBackupFileName: null);
+                else
+                    File.Move(tmp, path);
+                return;
+            }
+            catch (IOException) when (attempt < maxAttempts - 1)
+            {
+                Thread.Sleep(30 * (attempt + 1));
+            }
+            finally
+            {
+                if (File.Exists(tmp))
+                {
+                    try { File.Delete(tmp); }
+                    catch { /* ignore */ }
+                }
+            }
+        }
     }
 
     public static object ToApiPayload(ProviderSnapshot snap) => new

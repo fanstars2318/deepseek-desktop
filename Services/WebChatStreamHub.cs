@@ -21,12 +21,17 @@ internal sealed class WebChatStreamHub : IDisposable
 
     public string StreamId { get; } = Guid.NewGuid().ToString("N");
 
+    public bool HasReceivedDelta { get; private set; }
+
     public void SignalScriptCompleted() => _scriptDone.TrySetResult();
 
     public void SignalScriptFailed(Exception ex) => _scriptDone.TrySetException(ex);
 
-    public void PushError(string message) =>
+    public void PushError(string message)
+    {
         _channel.Writer.TryWrite(new WebChatStreamError(message));
+        SignalScriptCompleted();
+    }
 
     public async IAsyncEnumerable<WebChatStreamEvent> ReadAllAsync(
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
@@ -67,19 +72,26 @@ internal sealed class WebChatStreamHub : IDisposable
                 var kind = root.TryGetProperty("kind", out var k) ? k.GetString() : "content";
                 var text = root.TryGetProperty("text", out var t) ? t.GetString() : null;
                 if (!string.IsNullOrEmpty(text))
+                {
+                    if (!string.Equals(kind, "status", StringComparison.Ordinal))
+                        HasReceivedDelta = true;
                     _channel.Writer.TryWrite(new WebChatStreamDelta(kind ?? "content", text));
+                }
                 return true;
             }
             case "done":
             {
+                HasReceivedDelta = true;
                 var result = ParseDonePayload(root, _fallbackModel);
                 _channel.Writer.TryWrite(new WebChatStreamDone(result));
+                SignalScriptCompleted();
                 return true;
             }
             case "error":
             {
                 var msg = root.TryGetProperty("message", out var m) ? m.GetString() : "stream error";
                 _channel.Writer.TryWrite(new WebChatStreamError(msg ?? "stream error"));
+                SignalScriptCompleted();
                 return true;
             }
             default:

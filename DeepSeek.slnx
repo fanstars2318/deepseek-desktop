@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="DeepSeek.Core.Tests/DeepSeek.Core.Tests.csproj" />
+  <Project Path="DeepSeek.Core/DeepSeek.Core.csproj" />
+  <Project Path="DeepSeek.Desktop/DeepSeek.Desktop.csproj" />
+</Solution>

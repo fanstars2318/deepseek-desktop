@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
@@ -16,6 +17,7 @@ public sealed class DesktopWebHost
 
     public WebInjectService Chat { get; }
     public WebInjectService Agent { get; }
+    public WorkModeCoordinator WorkMode { get; }
 
     public bool IsAgentVisible { get; private set; }
     public bool AgentPageReady { get; private set; }
@@ -28,6 +30,7 @@ public sealed class DesktopWebHost
         _agentView = agentView;
         Chat = new WebInjectService(chatView, WebViewPageKind.Chat);
         Agent = new WebInjectService(agentView, WebViewPageKind.Agent);
+        WorkMode = new WorkModeCoordinator(this);
         Chat.MessageReceived += ForwardMessage;
         Agent.MessageReceived += ForwardMessage;
     }
@@ -58,11 +61,12 @@ public sealed class DesktopWebHost
         agentCore.Navigate(AppNavigation.AgentPageUrl);
         chatCore.Navigate(AppNavigation.DeepSeekUrl);
 
-        var startAgent = startWorkMode is "agent" or "plan";
-        if (startAgent)
-            ShowAgent();
+        WorkMode.SetModeFromConfig(startWorkMode);
+        if (WorkMode.IsAgentLike)
+            await WorkMode.ShowAgentSurfaceAsync();
         else
-            ShowChat();
+            await WorkMode.ShowChatSurfaceAsync();
+        await WorkMode.BroadcastAsync();
     }
 
     public bool IsAgentHostPage => IsAgentVisible;
@@ -70,6 +74,51 @@ public sealed class DesktopWebHost
     public WebInjectService ActiveInject => IsAgentVisible ? Agent : Chat;
 
     public Task PostToPageAsync(object message) => ActiveInject.PostToPageAsync(message);
+
+    /// <summary>立即向当前可见页推送 workModeState，另一页在后台补发（用于交互切换，避免等待重试循环）。</summary>
+    public async Task PushWorkModeStateNowAsync(WorkModeStatePayload state, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (IsAgentVisible)
+        {
+            await Agent.PushWorkModeStateAsync(state);
+            _ = Chat.PushWorkModeStateAsync(state);
+        }
+        else
+        {
+            await Chat.PushWorkModeStateAsync(state);
+            _ = Agent.PushWorkModeStateAsync(state);
+        }
+    }
+
+    /// <summary>向双 WebView 广播 workModeState（每轮按当前可见页重建状态，避免切换后迟到的旧快照把按钮闪回「普通」）。</summary>
+    public Task BroadcastWorkModeStateAsync(CancellationToken ct = default) =>
+        BroadcastWorkModeStateAsync(includeImmediate: true, ct);
+
+    public async Task BroadcastWorkModeStateAsync(bool includeImmediate, CancellationToken ct = default)
+    {
+        var delays = includeImmediate
+            ? new[] { 0, 50, 150, 350, 700, 1200 }
+            : new[] { 50, 150, 350, 700 };
+        foreach (var delay in delays)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (delay > 0)
+                await Task.Delay(delay, ct);
+            var state = WorkMode.BuildState();
+            await Chat.PushWorkModeStateAsync(state);
+            await Agent.PushWorkModeStateAsync(state);
+        }
+    }
+
+    public void ScheduleWorkModeBroadcastRetries(CancellationToken ct = default) =>
+        _ = BroadcastWorkModeStateAsync(includeImmediate: false, ct);
+
+    public Task AfterShowChatAsync(string workMode, CancellationToken ct = default)
+    {
+        WorkMode.SetModeFromConfig(workMode);
+        return WorkMode.ShowChatSurfaceAsync(ct);
+    }
 
     public Task PushAgentAuthHintAsync(bool loggedIn) => Agent.PushAgentAuthHintAsync(loggedIn);
 
@@ -141,20 +190,40 @@ public sealed class DesktopWebHost
 
     public void ShowChat()
     {
-        IsAgentVisible = false;
-        _chatView.Visibility = Visibility.Visible;
-        _agentView.Visibility = Visibility.Collapsed;
-        Panel.SetZIndex(_chatView, 1);
-        Panel.SetZIndex(_agentView, 0);
+        RunOnUiSync(() =>
+        {
+            IsAgentVisible = false;
+            _chatView.Visibility = Visibility.Visible;
+            _agentView.Visibility = Visibility.Collapsed;
+            Panel.SetZIndex(_chatView, 1);
+            Panel.SetZIndex(_agentView, 0);
+            WorkModeTrace.Write("ShowChat: chat visible");
+        });
     }
 
     public void ShowAgent()
     {
-        IsAgentVisible = true;
-        _agentView.Visibility = Visibility.Visible;
-        _chatView.Visibility = Visibility.Collapsed;
-        Panel.SetZIndex(_agentView, 1);
-        Panel.SetZIndex(_chatView, 0);
+        RunOnUiSync(() =>
+        {
+            IsAgentVisible = true;
+            _agentView.Visibility = Visibility.Visible;
+            _chatView.Visibility = Visibility.Collapsed;
+            Panel.SetZIndex(_agentView, 1);
+            Panel.SetZIndex(_chatView, 0);
+            WorkModeTrace.Write("ShowAgent: agent visible");
+        });
+    }
+
+    private static void RunOnUiSync(Action action)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            action();
+            return;
+        }
+
+        dispatcher.Invoke(action, DispatcherPriority.Send);
     }
 
     private void ForwardMessage(object? sender, JsonElement e) =>

@@ -30,10 +30,7 @@
   }
 
   let workMode = "chat";
-  try {
-    workMode = localStorage.getItem("ds-work-mode") || "chat";
-  } catch (_) {}
-  let apiUrl = "http://127.0.0.1:5111/v1";
+  let workModeUi = null;
   let modeMenuOpen = false;
   let toolbarInjected = false;
   let dockInjected = false;
@@ -299,7 +296,26 @@
 
 
   function isAgentLikeMode() {
+    if (window.DsWorkMode && window.DsWorkMode.getState()) return window.DsWorkMode.isAgentLike();
     return workMode === "agent" || workMode === "plan";
+  }
+
+  function bindWorkModeClient() {
+    if (window.__dsWorkModeClientBound) return;
+    if (!window.DsWorkMode) {
+      window.__dsWorkModeBindAttempts = (window.__dsWorkModeBindAttempts || 0) + 1;
+      if (window.__dsWorkModeBindAttempts < 60) setTimeout(bindWorkModeClient, 100);
+      return;
+    }
+    window.__dsWorkModeClientBound = true;
+    window.DsWorkMode.onChange(function (st) {
+      workModeUi = st;
+      workMode = st.mode;
+      syncWorkModeUi(st);
+      if (st.mode === "chat" && isDeepSeekOfficialPage()) teardownChatPageOverrides();
+    });
+    window.DsWorkMode.flushPending();
+    post("requestWorkModeState", {});
   }
 
   /** 官网 chat.deepseek.com：普通模式保持原生 UI，不做工具栏/发送拦截等注入 */
@@ -323,8 +339,58 @@
     document.querySelectorAll(".ds-mode-menu").forEach((m) => m.remove());
   }
 
-  function floaterModeLabel() {
-    return isAgentLikeMode() ? "Agent" : "普通";
+  function syncWorkModeUi(st) {
+    if (st && isDeepSeekOfficialPage() && st.surface === "agent") return;
+    const ui = st || workModeUi || {
+      label: isAgentLikeMode() ? "Agent" : "普通",
+      title: isAgentLikeMode()
+        ? "当前为 Agent 模式，点击切换到普通对话"
+        : "当前为普通对话，点击切换到 Agent",
+      highlight: isAgentLikeMode(),
+    };
+    const btn = document.getElementById("ds-agent-mode-float");
+    if (btn) {
+      let label = getFloaterLabel(btn);
+      if (!label) {
+        label = document.createElement("span");
+        label.className = "ds-native-label";
+        label.id = "ds-agent-mode-float-label";
+        btn.appendChild(label);
+      } else if (!label.id) {
+        label.id = "ds-agent-mode-float-label";
+      }
+      label.textContent = ui.label;
+      applyBtnStyle(btn, !!ui.highlight);
+      btn.dataset.dsOn = ui.highlight ? "1" : "0";
+      btn.classList.toggle("ds-on", !!ui.highlight);
+      btn.setAttribute("aria-label", ui.title);
+      btn.title = ui.title;
+      bindFloaterClick(btn);
+    }
+    if (!shouldKeepNativeDeepSeekUi()) {
+      updateAgentModeHint();
+      scheduleToolbarSpacing();
+    } else {
+      document.getElementById("ds-agent-mode-hint")?.remove();
+    }
+  }
+
+  function onFloaterClick(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (isDeepSeekOfficialPage()) syncTokenFromPage();
+    if (window.DsWorkMode && window.DsWorkMode.activateFloater) {
+      window.DsWorkMode.activateFloater();
+      return;
+    }
+    post("toggleWorkMode", {});
+  }
+
+  function bindFloaterClick(btn) {
+    if (!btn) return;
+    if (window.DsWorkMode && window.DsWorkMode.markFloater) window.DsWorkMode.markFloater(btn);
   }
 
   const DS_AGENT_URL = "https://ds-agent.local/index.html";
@@ -342,6 +408,8 @@
       try {
         const parsed = JSON.parse(raw);
         if (typeof parsed === "string") token = parsed;
+        else if (parsed && typeof parsed === "object" && typeof parsed.value === "string")
+          token = parsed.value;
       } catch (_) {}
       return token || null;
     } catch (_) {
@@ -379,54 +447,30 @@
     if (isAgentHostPage()) location.assign(DS_CHAT_URL);
   }
 
-  function toggleAgentModeFromFloater() {
-    setWorkMode(isAgentLikeMode() ? "chat" : "agent", true);
-  }
-
-  function setWorkMode(mode, notify) {
-    workMode = mode === "plan" || mode === "agent" ? mode : "chat";
-    try { localStorage.setItem("ds-work-mode", workMode); } catch (_) {}
-    if (workMode === "chat" && isDeepSeekOfficialPage()) teardownChatPageOverrides();
-    const goingAgent = workMode === "agent" || workMode === "plan";
-    const payload = { mode: workMode };
+  function requestWorkMode(mode, notify) {
+    const goingAgent = mode === "agent" || mode === "plan";
+    const extra = {};
     if (goingAgent && isDeepSeekOfficialPage()) {
       syncTokenFromPage();
       const token = readChatUserToken();
-      if (token) payload.token = token;
+      if (token) extra.token = token;
     }
-    post("setWorkMode", payload);
-    navigateForWorkMode(workMode);
-    syncWorkModeUi();
+    if (window.DsWorkMode) window.DsWorkMode.requestSet(mode, extra);
+    else post("setWorkMode", Object.assign({ mode: mode }, extra));
     if (notify) {
       if (goingAgent) showToast("Agent", ["已打开 Agent 工作台"]);
       else showToast("普通对话", ["已打开官网对话页"]);
     }
   }
 
-  function syncWorkModeUi() {
-    const on = isAgentLikeMode();
-    const btn = document.getElementById("ds-agent-mode-float");
-    if (btn) {
-      const label = btn.querySelector(".ds-native-label");
-      const nextLabel = floaterModeLabel();
-      if (label && label.textContent !== nextLabel) label.textContent = nextLabel;
-      if (btn.dataset.dsOn !== (on ? "1" : "0")) {
-        applyBtnStyle(btn, on);
-        btn.dataset.dsOn = on ? "1" : "0";
-      }
-      btn.classList.toggle("ds-on", on);
-      btn.setAttribute(
-        "aria-label",
-        on ? "Agent 模式，点击切换为普通对话" : "普通模式，点击切换为 Agent"
-      );
-      btn.title = on ? "Agent 模式 · 点击切换普通对话" : "普通对话 · 点击切换 Agent";
-    }
-    if (!shouldKeepNativeDeepSeekUi()) {
-      updateAgentModeHint();
-      scheduleToolbarSpacing();
-    } else {
-      document.getElementById("ds-agent-mode-hint")?.remove();
-    }
+  function setWorkMode(mode, notify) {
+    requestWorkMode(mode, notify);
+  }
+
+  function getFloaterLabel(btn) {
+    return (
+      btn.querySelector("#ds-agent-mode-float-label") || btn.querySelector(".ds-native-label")
+    );
   }
 
   let activeModeMenu = null;
@@ -472,7 +516,7 @@
   }
 
   function createModeSelector(btnId, menuId) {
-    const btn = createBtn(btnId, modeLabel(), "agent", false);
+    const btn = createBtn(btnId, isAgentLikeMode() ? "Agent" : "普通", "agent", false);
     btn.setAttribute("data-ds-toolbar", "1");
     applyBtnStyle(btn, isAgentLikeMode());
     if (isAgentLikeMode()) btn.classList.add("ds-on");
@@ -776,16 +820,14 @@
 
     const label = document.createElement("span");
     label.className = "ds-native-label";
-    label.textContent = floaterModeLabel();
+    label.id = "ds-agent-mode-float-label";
+    label.textContent = "普通";
 
     btn.append(icon, label);
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      toggleAgentModeFromFloater();
-    });
+    bindFloaterClick(btn);
 
     appendToBody(btn);
-    applyBtnStyle(btn, isAgentLikeMode());
+    applyBtnStyle(btn, false);
     btn.style.position = "fixed";
     btn.style.top = "14px";
     btn.style.right = "16px";
@@ -800,6 +842,19 @@
     return !!(btn && document.body && document.body.contains(btn));
   }
 
+  function isLoginOrAuthPage() {
+    if (!isDeepSeekOfficialPage()) return false;
+    const path = (location.pathname || "").toLowerCase();
+    if (/\/sign[-_]?in/.test(path) || /\/login/.test(path) || /\/register/.test(path) || /\/auth/.test(path)) {
+      return true;
+    }
+    return !readChatUserToken();
+  }
+
+  function shouldShowModeFloater() {
+    return isDeepSeekOfficialPage() && !isLoginOrAuthPage();
+  }
+
   function mountAgentModeFloater() {
     try {
       if (!document.body) {
@@ -810,13 +865,17 @@
         }
         return;
       }
+      if (!shouldShowModeFloater()) {
+        document.getElementById("ds-agent-mode-float")?.remove();
+        return;
+      }
       if (isFloaterMounted()) {
         syncWorkModeUi();
         return;
       }
       ensureAgentModeFloater();
     } catch (err) {
-      console.warn("[DeepSeek Edge] mode floater:", err);
+      console.warn("[DeepSeek Desktop] mode floater:", err);
     }
   }
 
@@ -914,7 +973,7 @@
       "  |  模型: " +
       (info.modelCount != null ? info.modelCount : "—") +
       "  |  认证: User Token";
-    const baseUrl = info.url || apiUrl;
+    const baseUrl = info.url || "";
     const apiKey = info.apiKey || "";
     const masked = info.apiKeyMasked || (apiKey ? apiKey.slice(0, 8) + "…" : "—");
     function fieldRow(label, value, copyVal) {
@@ -943,10 +1002,6 @@
     }
     const actions = document.createElement("div");
     actions.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:12px";
-    const btnApi = document.createElement("button");
-    btnApi.type = "button";
-    btnApi.textContent = "API 管理";
-    btnApi.style.cssText = "padding:8px 14px;border-radius:10px;border:1px solid #e5e7eb;background:#fff;cursor:pointer;font-size:13px";
     const btnSettings = document.createElement("button");
     btnSettings.type = "button";
     btnSettings.textContent = "MCP 设置";
@@ -956,7 +1011,7 @@
     btnClose.textContent = "确定";
     btnClose.style.cssText =
       "padding:8px 14px;border-radius:10px;border:none;background:#4d6bfe;color:#fff;cursor:pointer;font-size:13px";
-    actions.append(btnApi, btnSettings, btnClose);
+    actions.append(btnSettings, btnClose);
     card.append(
       titleRow,
       desc,
@@ -971,7 +1026,6 @@
     mask.addEventListener("click", function (e) { if (e.target === mask) mask.remove(); });
     btnClose.onclick = function () { mask.remove(); };
     btnSettings.onclick = function () { mask.remove(); post("openSettings", {}); };
-    btnApi.onclick = function () { mask.remove(); post("openChat2Api", {}); };
   }
 
   function updateApiDot() {
@@ -1179,6 +1233,7 @@
     if (shouldKeepNativeDeepSeekUi()) {
       teardownChatPageOverrides();
       mountAgentModeFloater();
+      bindWorkModeClient();
       if (!window.__dsNativeReadyPosted) {
         window.__dsNativeReadyPosted = true;
         post("nativeReady", {});
@@ -1244,6 +1299,14 @@
   }
 
   window.dsDesktopOnMessage = function (msg) {
+    try {
+      handleDesktopMessage(msg);
+    } finally {
+      flushPendingNativeMessages();
+    }
+  };
+
+  function handleDesktopMessage(msg) {
     const nativeOnly = shouldKeepNativeDeepSeekUi();
 
     if (!nativeOnly) {
@@ -1267,32 +1330,25 @@
       }
     }
 
-    if (msg.type === "apiInfo") {
-      apiUrl = msg.url || apiUrl;
-      updateApiDot();
-      if (msg.workMode === "agent" || msg.workMode === "plan" || msg.workMode === "chat") {
-        setWorkMode(msg.workMode, false);
-      }
+    if (msg.type === "workModeState" && window.DsWorkMode) {
+      window.DsWorkMode.applyState(msg);
     }
-    if (msg.type === "showProviderCard" && !nativeOnly) {
-      showProviderCard({
-        url: msg.url || apiUrl,
-        apiKey: msg.apiKey,
-        apiKeyMasked: msg.apiKeyMasked,
-        modelCount: msg.modelCount,
-        tuiRuntimeUrl: msg.tuiRuntimeUrl,
-        loggedIn: msg.loggedIn !== false && updateApiDot()
-      });
+    if (msg.type === "loginState") {
+      if (typeof msg.loggedIn === "boolean") apiOnline = msg.loggedIn;
+      updateApiDot();
+    }
+    if (msg.type === "apiInfo") {
+      updateApiDot();
     }
     if (msg.type === "reinject") scheduleBurstInject(false);
-  };
+  }
 
   window.__dsNativeTryInject = function dsNativeTryInject() {
     try {
       tryInject();
       return true;
     } catch (err) {
-      console.warn("[DeepSeek Edge] inject:", err);
+      console.warn("[DeepSeek Desktop] inject:", err);
       return false;
     }
   };
@@ -1338,8 +1394,21 @@
       domObserver = new MutationObserver(onDomMutated);
       domObserver.observe(root, { childList: true, subtree: true });
     } catch (err) {
-      console.warn("[DeepSeek Edge] MutationObserver:", err);
+      console.warn("[DeepSeek Desktop] MutationObserver:", err);
     }
+  }
+
+  function flushPendingNativeMessages() {
+    const q = window.__dsPendingNativeMessages;
+    if (!q || !q.length || typeof window.dsDesktopOnMessage !== "function") return;
+    window.__dsPendingNativeMessages = [];
+    q.forEach((m) => {
+      try {
+        window.dsDesktopOnMessage(m);
+      } catch (err) {
+        console.warn("[DeepSeek Desktop] pending native msg:", err);
+      }
+    });
   }
 
   function bootstrapNativeInject() {
@@ -1352,10 +1421,14 @@
           .forEach((n) => n.remove());
         document.getElementById("ds-api-status-float")?.remove();
       } catch (_) {}
-      document.addEventListener("click", closeModeMenus);
+      document.addEventListener("click", (e) => {
+        if (e.target.closest("#ds-agent-mode-float")) return;
+        closeModeMenus();
+      });
       hookSpaNavigation();
       hookNativeModePills();
       startDomObserver();
+      bindWorkModeClient();
       if (!window.__dsResizeHooked) {
         window.__dsResizeHooked = true;
         window.addEventListener("resize", () => {
@@ -1377,6 +1450,7 @@
     }
     mountAgentModeFloater();
     watchChatUserToken();
+    flushPendingNativeMessages();
     scheduleBurstInject(!window.__dsNativeBootDone);
     window.__dsNativeBootDone = true;
     return true;

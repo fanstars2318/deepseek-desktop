@@ -6,9 +6,7 @@ namespace DeepSeekBrowser.Services;
 
 public static class ConfigStore
 {
-    private static readonly string ConfigDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "DeepSeekEdge");
+    private static string ConfigDir => DeepSeekDesktopApp.LocalAppDataRoot;
 
     public static string ConfigDirectory => ConfigDir;
     public static string ConfigFilePath => Path.Combine(ConfigDir, "config.json");

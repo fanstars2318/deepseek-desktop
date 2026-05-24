@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "DeepSeek.Desktop (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "DeepSeek.Desktop (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
