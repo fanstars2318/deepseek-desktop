@@ -40,6 +40,19 @@ Agent UI：`/skills` 列表 · `/skill <id>` 启用 · `/skills <id>` 简写
 
 Harness 将 Skill 正文注入 **Composer**（与 Playbook 并列），**不修改** skill 源文件。
 
+## 外部 Skill 合集（ExtraRoots）
+
+对标 antigravity-awesome-skills / awesome-claude-skills：通过 `AppConfig.AgentSkillExtraRoots` 挂载只读合集根目录（不打包进安装包）。
+
+| 项 | 说明 |
+|----|------|
+| 配置 | 桌面设置或 `config.json` 的 `agentSkillExtraRoots` 数组 |
+| 索引 | `HarnessSkillCatalogIndexer.Reindex` → `~/.deepseek/skills/index.json` |
+| 命令 | `/skills reindex` · `/skills search <query>` |
+| Clone | `scripts/setup-reference-repos.ps1` 将参考合集 clone 到 `DSD/` |
+
+详见 [SKILLS_CATALOG.md](./SKILLS_CATALOG.md)。
+
 ## MCP（市场标准）
 
 连接时合并（`AppConfig.AgentImportMarketMcp`，默认 **true**）：

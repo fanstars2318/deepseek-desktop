@@ -154,6 +154,15 @@
     if (banner) banner.remove();
   }
 
+  function hideProviderSupportMatrix() {
+    document.querySelectorAll("label").forEach(function (el) {
+      var t = (el.textContent || "").trim();
+      if (t === "供应商支持" || t === "Provider support") {
+        hide(el.closest(".space-y-2") || el.parentElement);
+      }
+    });
+  }
+
   function hideLanguageControls() {
     try {
       localStorage.setItem("i18nextLng", "zh-CN");
@@ -182,6 +191,7 @@
     ensureEmbeddedRoute();
     hideAboutPage();
     hideLanguageControls();
+    hideProviderSupportMatrix();
     hideSidebarNav();
     hideProxyTabsAndPanels();
     hideTopbarProxyControls();

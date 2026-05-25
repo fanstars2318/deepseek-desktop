@@ -1,0 +1,19 @@
+# Eval datasets for local harness runs (Opik-style hook).
+# Place JSON files here: ~/.deepseek/evals/*.json
+#
+# Schema:
+# {
+#   "id": "hello-basic",
+#   "prompt": "Say hello",
+#   "expectedContains": ["hello", "hi"],
+#   "tags": ["smoke"]
+# }
+
+[
+  {
+    "id": "smoke-greeting",
+    "prompt": "Reply with exactly: pong",
+    "expectedContains": ["pong"],
+    "tags": ["smoke"]
+  }
+]

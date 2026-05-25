@@ -19,6 +19,9 @@ public sealed class HarnessPlaybook
 
     public List<string> Steps { get; set; } = new();
 
+    /// <summary>Block refs: verify-dotnet, run-graph:code-review, skill:xxx</summary>
+    public List<string> Blocks { get; set; } = new();
+
     public HarnessPlaybookVerify? Verify { get; set; }
 }
 

@@ -11,7 +11,9 @@ public sealed class HarnessOrchestratorTests
     {
         var chat = new PlanModeFakeChat();
         var mcp = new McpHub();
-        var approval = new ApprovalGate(new AppConfig { AgentApprovalMode = "always" }, (_, _) => Task.FromResult(false));
+        var approval = new PermissionGate(
+            new AppConfig { AgentApprovalMode = "always" },
+            new ApprovalGate(new AppConfig { AgentApprovalMode = "always" }, (_, _) => Task.FromResult(false)));
         var orchestrator = new HarnessOrchestrator(chat, mcp, approval);
 
         var request = new HarnessRunRequest
@@ -40,7 +42,8 @@ public sealed class HarnessOrchestratorTests
             bool allowToolCalls,
             CancellationToken ct,
             string? webUserToken = null,
-            string? webChatSessionId = null)
+            string? webChatSessionId = null,
+            AgentChatOptions? options = null)
         {
             CompleteCalls++;
             if (CompleteCalls == 1 && allowToolCalls)
@@ -71,7 +74,8 @@ public sealed class HarnessOrchestratorTests
             bool allowToolCalls,
             CancellationToken ct,
             string? webUserToken = null,
-            string? webChatSessionId = null)
+            string? webChatSessionId = null,
+            AgentChatOptions? options = null)
         {
             yield return new WebChatStreamDone(await CompleteAsync(
                 messages, model, thinking, search, refFileIds, allowToolCalls, ct, webUserToken, webChatSessionId));
@@ -83,8 +87,7 @@ public sealed class HarnessOrchestratorTests
     {
         var chat = new FakeAgentWebChat();
         var mcp = new McpHub();
-        var approval = new ApprovalGate(new AppConfig { AgentApprovalMode = "never" }, (_, _) => Task.FromResult(true));
-        var orchestrator = new HarnessOrchestrator(chat, mcp, approval);
+        var orchestrator = new HarnessOrchestrator(chat, mcp, HarnessTestPermission.AllowAll());
 
         var request = new HarnessRunRequest
         {
@@ -112,7 +115,8 @@ public sealed class HarnessOrchestratorTests
             bool allowToolCalls,
             CancellationToken ct,
             string? webUserToken = null,
-            string? webChatSessionId = null)
+            string? webChatSessionId = null,
+            AgentChatOptions? options = null)
         {
             CompleteCalls++;
             if (CompleteCalls == 1)
@@ -150,7 +154,8 @@ public sealed class HarnessOrchestratorTests
             bool allowToolCalls,
             CancellationToken ct,
             string? webUserToken = null,
-            string? webChatSessionId = null)
+            string? webChatSessionId = null,
+            AgentChatOptions? options = null)
         {
             var result = await CompleteAsync(
                 messages, model, thinking, search, refFileIds, allowToolCalls, ct, webUserToken, webChatSessionId);

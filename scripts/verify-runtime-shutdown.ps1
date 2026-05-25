@@ -21,7 +21,7 @@ if (-not (Test-Path $exe)) {
 }
 
 function Get-PublishDeepSeekProcesses {
-    Get-Process -Name "DeepSeek" -ErrorAction SilentlyContinue | Where-Object {
+    Get-Process -Name "DeepSeek","DeepSeek.App" -ErrorAction SilentlyContinue | Where-Object {
         try {
             if ($_.HasExited) { return $false }
             $path = $_.MainModule.FileName

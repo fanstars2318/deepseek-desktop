@@ -16,7 +16,18 @@ public static class HarnessSandboxProviderRegistry
 
         lock (Gate)
         {
-            _provider ??= new LocalWorkspaceSandboxProvider();
+            if (_provider is null)
+            {
+                var local = new LocalWorkspaceSandboxProvider();
+                if (config is not null)
+                    local.Configure(config);
+                _provider = local;
+            }
+            else if (_provider is LocalWorkspaceSandboxProvider localProvider && config is not null)
+            {
+                localProvider.Configure(config);
+            }
+
             return _provider;
         }
     }

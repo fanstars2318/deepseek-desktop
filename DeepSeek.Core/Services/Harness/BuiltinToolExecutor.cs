@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using DeepSeekBrowser.Models;
 using DeepSeekBrowser.Services.Harness.Sandbox;
 
 namespace DeepSeekBrowser.Services.Harness;
@@ -10,32 +11,63 @@ public sealed class BuiltinToolExecutor
 {
     private static readonly HashSet<string> BuiltinNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        "read_file", "write_file", "list_dir", "grep", "glob", "run_shell"
+        "read_file", "read", "write_file", "write", "edit_file", "edit",
+        "list_dir", "grep", "glob", "run_shell", "bash", "image_analyze"
     };
 
     public static bool IsBuiltin(string name) => BuiltinNames.Contains(name);
 
-    public async Task<string> ExecuteAsync(
+    public static string NormalizeName(string name) =>
+        name.ToLowerInvariant() switch
+        {
+            "read" => "read_file",
+            "write" => "write_file",
+            "edit" => "edit_file",
+            "bash" => "run_shell",
+            _ => name
+        };
+
+    public Task<string> ExecuteAsync(
         string toolName,
         string argumentsJson,
         string workspaceRoot,
         bool allowShell,
         CancellationToken ct,
-        IHarnessSandbox? sandbox = null)
+        IHarnessSandbox? sandbox = null,
+        Action<string>? onShellOutput = null,
+        AppConfig? config = null) =>
+        ExecuteDetailedAsync(toolName, argumentsJson, workspaceRoot, allowShell, ct, sandbox, onShellOutput, config)
+            .ContinueWith(t => t.Result.Output, ct);
+
+    public async Task<HarnessToolExecuteResult> ExecuteDetailedAsync(
+        string toolName,
+        string argumentsJson,
+        string workspaceRoot,
+        bool allowShell,
+        CancellationToken ct,
+        IHarnessSandbox? sandbox = null,
+        Action<string>? onShellOutput = null,
+        AppConfig? config = null)
     {
         using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson);
         var root = doc.RootElement;
         var effectiveRoot = sandbox?.WorkspaceRoot ?? workspaceRoot;
         var paths = new SandboxPathResolver(effectiveRoot);
+        var normalized = NormalizeName(toolName);
 
-        return toolName.ToLowerInvariant() switch
+        return normalized switch
         {
-            "read_file" => ReadFile(root, paths),
-            "write_file" => WriteFile(root, paths),
-            "list_dir" => ListDir(root, paths),
-            "grep" => Grep(root, paths, ct),
-            "glob" => Glob(root, paths),
-            "run_shell" => await RunShellAsync(root, paths, allowShell, sandbox, ct),
+            "read_file" or "read" => HarnessReadFileTool.Execute(root, paths),
+            "write_file" or "write" => HarnessToolExecuteResult.FromOutput(WriteFile(root, paths)),
+            "edit_file" or "edit" => HarnessToolExecuteResult.FromOutput(HarnessEditFileTool.Execute(root, paths)),
+            "list_dir" => HarnessToolExecuteResult.FromOutput(ListDir(root, paths)),
+            "grep" => HarnessToolExecuteResult.FromOutput(Grep(root, paths, ct)),
+            "glob" => HarnessToolExecuteResult.FromOutput(Glob(root, paths)),
+            "run_shell" or "bash" => HarnessToolExecuteResult.FromOutput(
+                await RunShellAsync(root, paths, allowShell, sandbox, config, ct, onShellOutput)),
+            "image_analyze" => config is null
+                ? HarnessToolExecuteResult.FromOutput("ERROR: image_analyze 需要 AppConfig")
+                : await HarnessImageAnalyzeTool.RunAsync(root, paths, config, ct),
             _ => throw new InvalidOperationException("未知内置工具: " + toolName)
         };
     }
@@ -73,32 +105,10 @@ public sealed class BuiltinToolExecutor
         return text.Length > 80_000 ? text[..80_000] + "\n…(已截断)" : text;
     }
 
-    private static string ReadFile(JsonElement args, SandboxPathResolver paths)
-    {
-        var path = GetString(args, "path") ?? GetString(args, "file_path")
-                   ?? throw new ArgumentException("read_file 需要 path");
-        string full;
-        try
-        {
-            full = paths.ResolveRead(path);
-        }
-        catch (Exception ex)
-        {
-            return "ERROR: " + ex.Message;
-        }
-
-        if (!File.Exists(full))
-            return "ERROR: 文件不存在: " + path;
-        var text = File.ReadAllText(full, Encoding.UTF8);
-        if (text.Length > 120_000)
-            text = text[..120_000] + "\n…(已截断)";
-        return text;
-    }
-
     private static string WriteFile(JsonElement args, SandboxPathResolver paths)
     {
-        var path = GetString(args, "path") ?? GetString(args, "file_path")
-                   ?? throw new ArgumentException("write_file 需要 path");
+        var path = GetString(args, "file_path") ?? GetString(args, "path")
+                   ?? throw new ArgumentException("write_file 需要 file_path");
         var content = GetString(args, "content") ?? "";
         string full;
         try
@@ -227,7 +237,9 @@ public sealed class BuiltinToolExecutor
         SandboxPathResolver paths,
         bool allowShell,
         IHarnessSandbox? sandbox,
-        CancellationToken ct)
+        AppConfig? config,
+        CancellationToken ct,
+        Action<string>? onShellOutput = null)
     {
         if (!allowShell)
             return "ERROR: Shell 已在设置中禁用";
@@ -237,10 +249,27 @@ public sealed class BuiltinToolExecutor
         if (blocked is not null)
             return "ERROR: " + blocked;
 
-        if (sandbox is not null)
-            return await sandbox.ExecuteShellAsync(command, ct);
+        var timeoutMs = ResolveBashTimeoutMs(config);
+        var shellOpts = new HarnessShellRunOptions { TimeoutMs = timeoutMs, OnOutput = onShellOutput };
 
-        return await RunShellOnHostAsync(command, paths.Mapper.WorkspaceRoot, ct, paths);
+        if (sandbox is not null)
+            return await sandbox.ExecuteShellAsync(command, ct, shellOpts);
+
+        return await HarnessShellRunner.RunAsync(
+            command,
+            paths.Mapper.WorkspaceRoot,
+            paths,
+            timeoutMs,
+            ct,
+            onShellOutput);
+    }
+
+    private static int ResolveBashTimeoutMs(AppConfig? config)
+    {
+        if (config is null)
+            return 600_000;
+        var min = Math.Clamp(config.AgentBashMinTimeoutMs, 1000, 3_600_000);
+        return Math.Clamp(config.AgentBashTimeoutMs, min, 3_600_000);
     }
 
     private static string? GetString(JsonElement el, string name) =>

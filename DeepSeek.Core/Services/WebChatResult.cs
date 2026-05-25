@@ -12,6 +12,10 @@ public sealed class WebChatResult
 
     /// <summary>DeepSeek 网页 chat_session_id（多轮 session_id 绑定用）。</summary>
     public string? ChatSessionId { get; init; }
+
+    public int PromptTokens { get; init; }
+    public int CompletionTokens { get; init; }
+    public int TotalTokens { get; init; }
 }
 
 public sealed class WebToolCall

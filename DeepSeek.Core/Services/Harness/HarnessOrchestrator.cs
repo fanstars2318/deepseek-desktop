@@ -4,6 +4,8 @@ using System.Text.Json.Serialization;
 using DeepSeekBrowser.Models;
 using DeepSeekBrowser.Services;
 using DeepSeekBrowser.Services.Harness.Interop;
+using DeepSeekBrowser.Services.Harness.Memory;
+using DeepSeekBrowser.Services.Harness.Observability;
 using DeepSeekBrowser.Services.Harness.Sandbox;
 
 namespace DeepSeekBrowser.Services.Harness;
@@ -18,12 +20,22 @@ public sealed class HarnessOrchestrator
     private readonly IAgentWebChat _chat;
     private readonly McpHub _mcp;
     private readonly HarnessTrace _trace = new();
+    private readonly IUserQuestionHandler? _userQuestions;
+    private readonly string? _workspaceForHistory;
 
-    public HarnessOrchestrator(IAgentWebChat chat, McpHub mcp, ApprovalGate approval)
+    public HarnessOrchestrator(
+        IAgentWebChat chat,
+        McpHub mcp,
+        PermissionGate permission,
+        IUserQuestionHandler? userQuestions = null,
+        string? workspaceForHistory = null,
+        HarnessSubAgentService? subAgents = null)
     {
         _chat = chat;
         _mcp = mcp;
-        _tools = new HarnessToolExecutor(mcp, approval, _trace);
+        _userQuestions = userQuestions;
+        _workspaceForHistory = workspaceForHistory;
+        _tools = new HarnessToolExecutor(mcp, permission, _trace, userQuestions, workspaceForHistory, subAgents);
     }
 
     private readonly HarnessToolExecutor _tools;
@@ -35,6 +47,7 @@ public sealed class HarnessOrchestrator
     {
         var config = request.Config;
         var workspace = AgentWorkspace.ResolveRoot(config);
+        _tools.SetAgentSessionId(request.AgentSessionId);
         HarnessPlaybook? playbook = null;
         if (!string.IsNullOrWhiteSpace(request.PlaybookId))
             HarnessPlaybookRegistry.TryGet(request.PlaybookId, workspace, out playbook);
@@ -48,7 +61,7 @@ public sealed class HarnessOrchestrator
             strategy = pbStrategy;
 
         var profile = HarnessStrategyResolver.Resolve(strategy);
-        var maxTurns = Math.Clamp(config.MaxAgentSteps, 1, 50);
+        var maxTurns = Math.Clamp(request.MaxStepsOverride ?? config.MaxAgentSteps, 1, 50);
         var researchCap = HarnessPhasePolicy.ResearchCap(profile.Workflow, maxTurns);
 
         var state = DeserializeState(request.ExistingHarnessState, profile) ?? new HarnessRunState
@@ -100,10 +113,98 @@ public sealed class HarnessOrchestrator
             AgentDebugLogger.Current?.Write("HARNESS", "prep: MCP catalog error " + ex.Message);
         }
 
+        var mcpMaxLines = Math.Clamp(config.AgentMcpCatalogMaxLines, 8, 120);
+        if (!string.IsNullOrWhiteSpace(mcpCatalog))
+            mcpCatalog = HarnessPromptBudget.TrimMcpCatalog(mcpCatalog, mcpMaxLines);
+
         var useThinking = config.AgentDeepThinking;
         var useSearch = config.AgentWebSearch;
 
-        var snapshot = HarnessWorkspaceBootstrap.BuildSnapshot(workspace);
+        var snapshotMax = Math.Clamp(config.AgentWorkspaceSnapshotMaxEntries, 10, 200);
+        var snapshot = HarnessWorkspaceBootstrap.BuildSnapshot(workspace, snapshotMax);
+        var useOpenAiTools = AgentChatClientFactory.UsesOpenAiTools(config);
+        var model = string.IsNullOrWhiteSpace(config.Model) ? AgentModeHelper.AgentModel : config.Model;
+
+        using var runTracer = HarnessRunTracer.TryBegin(
+            workspace,
+            state.RunId,
+            config,
+            new HarnessRunTracerContext
+            {
+                Strategy = strategy,
+                SessionId = request.AgentSessionId,
+                Model = model,
+                PromptPreview = request.Prompt
+            });
+        _trace.BindTracer(runTracer);
+
+        if (config.AgentSemanticMemoryEnabled
+            && !HarnessPromptBudget.IsLikelyCasualPrompt(request.Prompt))
+        {
+            try
+            {
+                using var memStore = new HarnessSemanticMemoryStore();
+                using var embed = new HarnessEmbeddingClient(config);
+                var retriever = new HarnessMemoryRetriever(memStore, embed);
+                var semantic = await retriever.RetrieveAsync(
+                    config, request.Prompt, workspace, request.AgentSessionId, ct);
+                if (semantic.Count > 0)
+                {
+                    memory = new HarnessMemoryContext
+                    {
+                        DomainId = memory.DomainId,
+                        DomainName = memory.DomainName,
+                        L0CoreExcerpt = memory.L0CoreExcerpt,
+                        L2Behavior = memory.L2Behavior,
+                        L1Context = memory.L1Context,
+                        L3Cognitive = memory.L3Cognitive,
+                        CheckpointSummary = memory.CheckpointSummary,
+                        PendingItems = memory.PendingItems,
+                        Pitfalls = memory.Pitfalls,
+                        SemanticMemories = semantic
+                    };
+                }
+            }
+            catch
+            {
+                // 语义记忆检索失败不阻断
+            }
+        }
+
+        var toolInventory = HarnessToolInventory.Build(config, mcpCatalog);
+        HarnessRunIntent? intent = HarnessIntentCache.TryRestore(request, state);
+        if (HarnessRunIntentPlanner.ShouldPlan(request, state))
+        {
+            callbacks.OnLog?.Invoke("正在分析任务意图并匹配 Skill / 工具…");
+            using (runTracer?.StartSpan("intent.plan"))
+            {
+                intent = await HarnessRunIntentPlanner.PlanAsync(request, _chat, mcpCatalog, workspace, ct);
+            }
+
+            if (intent is not null)
+            {
+                HarnessIntentCache.Save(state, request.Prompt, intent);
+                if (skill is null
+                    && intent.AutoSelectedSkill
+                    && !string.IsNullOrWhiteSpace(intent.SelectedSkillId)
+                    && HarnessSkillRegistry.TryGet(
+                        intent.SelectedSkillId, workspace, out skill, config.AgentSkillExtraRoots))
+                {
+                    state.SkillId = skill!.Id;
+                    callbacks.OnLog?.Invoke($"已自动匹配 Skill: {skill.Name} ({skill.Id})");
+                }
+
+                callbacks.OnActivity?.Invoke(new AgentUiActivity(
+                    "Intent",
+                    intent.UsedLlm ? "LLM 规划" : "启发式",
+                    TruncateIntent(intent.Analysis)));
+            }
+        }
+        else if (intent is not null)
+        {
+            callbacks.OnActivity?.Invoke(new AgentUiActivity("Intent", "缓存", TruncateIntent(intent.Analysis)));
+        }
+
         List<ChatMessage> messages;
         if (state.Messages is { Count: > 0 })
         {
@@ -113,10 +214,21 @@ public sealed class HarnessOrchestrator
         else
         {
             messages = HarnessComposer.BuildInitialMessages(
-                request, workspace, mcpCatalog, snapshot, state.Phase, profile, playbook, memory, skill).ToList();
+                request, workspace, mcpCatalog, snapshot, state.Phase, profile, playbook, memory, skill,
+                intent,
+                includeXmlTools: !useOpenAiTools).ToList();
         }
 
-        var model = string.IsNullOrWhiteSpace(config.Model) ? AgentModeHelper.AgentModel : config.Model;
+        if (HarnessContextCompactor.ShouldCompact(config, messages))
+        {
+            callbacks.OnLog?.Invoke("对话较长，正在压缩上下文…");
+            var tokensBefore = HarnessContextCompactor.EstimateTokens(messages);
+            await HarnessContextCompactor.CompactAsync(
+                _chat, messages, config, model, useThinking, useSearch,
+                await HarnessOpenAiToolLoop.BuildChatOptionsAsync(config, _mcp, allowTools: false, ct), ct);
+            runTracer?.RecordCompact(tokensBefore, HarnessContextCompactor.EstimateTokens(messages));
+        }
+
         var blueprintRetried = false;
 
         for (var turn = 0; turn < maxTurns; turn++)
@@ -139,9 +251,12 @@ public sealed class HarnessOrchestrator
             AgentDebugLogger.Current?.Write("HARNESS",
                 $"stream: turn {state.TurnCount} begin thinking={useThinking} search={useSearch} tools={allowTools}");
 
+            var chatOptions = await HarnessOpenAiToolLoop.BuildChatOptionsAsync(
+                config, _mcp, allowTools, ct, intent, toolInventory);
+
             var result = await StreamOneTurnAsync(
                 messages, model, config, request.RefFileIds, allowTools, useThinking, useSearch, token, webSessionId,
-                callbacks, ct);
+                chatOptions, callbacks, runTracer, ct);
 
             if (!string.IsNullOrWhiteSpace(result.ChatSessionId))
             {
@@ -181,7 +296,8 @@ public sealed class HarnessOrchestrator
                     }
 
                     state.Messages = messages;
-                    return FinalizeRun(text, state, webSessionId, domain, request.Prompt, config, workspace);
+                    return await FinalizeRunAsync(
+                        text, state, webSessionId, domain, request, config, workspace, runTracer, ct);
                 }
 
                 if (state.Phase == HarnessPhase.Blueprint && state.BlueprintFinalized && !blueprintRetried)
@@ -206,14 +322,16 @@ public sealed class HarnessOrchestrator
                     {
                         var verifyResult = await RunVerifyPhaseAsync(
                             text, verifySteps, workspace, state, messages, model, config,
-                            request.RefFileIds, useThinking, useSearch, token, webSessionId, callbacks, ct);
+                            request.RefFileIds, useThinking, useSearch, token, webSessionId, callbacks, runTracer, ct);
                         state.Messages = messages;
-                        return FinalizeRun(verifyResult.Answer, state, webSessionId, domain, request.Prompt, config, workspace);
+                        return await FinalizeRunAsync(
+                            verifyResult.Answer, state, webSessionId, domain, request, config, workspace, runTracer, ct);
                     }
                 }
 
                 state.Messages = messages;
-                return FinalizeRun(text, state, webSessionId, domain, request.Prompt, config, workspace);
+                return await FinalizeRunAsync(
+                    text, state, webSessionId, domain, request, config, workspace, runTracer, ct);
             }
 
             if (!allowTools)
@@ -222,7 +340,8 @@ public sealed class HarnessOrchestrator
                 if (string.IsNullOrEmpty(fallback))
                     fallback = "（模型在 " + HarnessPhasePolicy.TraceLabel(state.Phase) + " 阶段仍尝试调用工具，已忽略）";
                 state.Messages = messages;
-                return FinalizeRun(fallback, state, webSessionId, domain, request.Prompt, config, workspace);
+                return await FinalizeRunAsync(
+                    fallback, state, webSessionId, domain, request, config, workspace, runTracer, ct);
             }
 
             messages.Add(new ChatMessage
@@ -232,15 +351,22 @@ public sealed class HarnessOrchestrator
                 ToolCalls = toolCalls
             });
 
+            _tools.SetRunCallbacks(callbacks);
             foreach (var tc in toolCalls)
             {
                 callbacks.OnActivity?.Invoke(
                     HarnessActivityMapper.MapToolCall(tc.Name, tc.Arguments, workspace));
                 callbacks.OnLog?.Invoke("工具: " + tc.Name);
 
-                var toolResult = await _tools.ExecuteAsync(
-                    tc.Name, tc.Arguments, config, workspace, state.Phase, ct, sandboxCoord);
+                var execName = AgentChatClientFactory.UsesOpenAiTools(config)
+                    ? HarnessOpenAiToolLoop.NormalizeToolName(tc.Name)
+                    : tc.Name;
 
+                var execResult = await _tools.ExecuteDetailedAsync(
+                    execName, tc.Arguments, config, workspace, state.Phase, ct, sandboxCoord,
+                    chunk => callbacks.OnShellOutput?.Invoke(chunk));
+
+                var toolResult = execResult.Output;
                 if (config.AgentToolOutputSpill)
                 {
                     toolResult = HarnessToolOutputSpill.Process(
@@ -254,24 +380,49 @@ public sealed class HarnessOrchestrator
                     ToolCallId = tc.Id,
                     Content = toolResult
                 });
+
+                foreach (var followUp in execResult.FollowUpMessages)
+                {
+                    if (!AgentChatClientFactory.UsesDirectApi(config)
+                        && followUp.ContentParts?.Any(p =>
+                            string.Equals(p.Type, "image_url", StringComparison.OrdinalIgnoreCase)) == true)
+                    {
+                        messages.Add(new ChatMessage
+                        {
+                            Role = "system",
+                            Content = (followUp.ContentParts?.FirstOrDefault(p =>
+                                string.Equals(p.Type, "text", StringComparison.OrdinalIgnoreCase))?.Text ?? "")
+                                      + "\n[Image loaded — use API inference mode or image_analyze in web mode.]"
+                        });
+                    }
+                    else
+                    {
+                        messages.Add(followUp);
+                    }
+                }
             }
 
             state.Messages = messages;
         }
 
         state.Messages = messages;
-        return FinalizeRun("已达到最大工具调用轮数，请缩小任务或重试。", state, webSessionId, domain, request.Prompt, config, workspace);
+        return await FinalizeRunAsync(
+            "已达到最大工具调用轮数，请缩小任务或重试。", state, webSessionId, domain, request, config, workspace, runTracer, ct);
     }
 
-    private HarnessRunResult FinalizeRun(
+    private async Task<HarnessRunResult> FinalizeRunAsync(
         string answer,
         HarnessRunState state,
         string? webSessionId,
         HarnessDomainMatch domain,
-        string userPrompt,
+        HarnessRunRequest request,
         AppConfig config,
-        string workspace)
+        string workspace,
+        HarnessRunTracer? runTracer,
+        CancellationToken ct)
     {
+        var userPrompt = request.Prompt;
+        var wrotePostMortem = false;
         try
         {
             HarnessCheckpointStore.UpdateAfterRun(
@@ -285,13 +436,52 @@ public sealed class HarnessOrchestrator
         if (config.AgentWritePostMortem && !string.IsNullOrWhiteSpace(state.RunId))
         {
             HarnessPostMortemWriter.Write(workspace, state.RunId, domain, userPrompt, answer, state);
+            wrotePostMortem = true;
         }
+
+        runTracer?.FinalizeRun(new HarnessRunMetaFinalizeArgs
+        {
+            WorkspaceRoot = workspace,
+            Strategy = request.Strategy,
+            SessionId = request.AgentSessionId,
+            Model = config.Model,
+            PromptPreview = userPrompt,
+            AnswerPreview = answer,
+            Phase = HarnessPhasePolicy.TraceLabel(state.Phase),
+            DomainId = domain.Id,
+            WrotePostMortem = wrotePostMortem,
+            RetentionDays = config.AgentTraceRetentionDays
+        });
+
+        if (config.AgentSemanticMemoryEnabled)
+        {
+            try
+            {
+                HarnessMemoryMaintenance.PruneExpiredSessions(config);
+                if (config.AgentSemanticMemoryAutoExtract)
+                {
+                    using var memStore = new HarnessSemanticMemoryStore();
+                    using var embed = new HarnessEmbeddingClient(config);
+                    var extractor = new HarnessMemoryExtractor(memStore, embed, () => _chat);
+                    await extractor.ExtractAfterRunAsync(
+                        config, userPrompt, answer, workspace, request.AgentSessionId, ct);
+                }
+            }
+            catch
+            {
+                // 抽取失败不阻断
+            }
+        }
+
+        AgentNotifyRunner.TryLaunch(config, TruncateNotify(userPrompt, answer));
 
         return new HarnessRunResult
         {
             Answer = answer,
             HarnessState = SerializeState(state),
-            WebChatSessionId = webSessionId
+            WebChatSessionId = webSessionId,
+            LastCheckpointHash = _tools.LastCheckpointHash ?? state.LastCheckpointHash,
+            RunId = state.RunId
         };
     }
 
@@ -309,6 +499,7 @@ public sealed class HarnessOrchestrator
         string? token,
         string? webSessionId,
         HarnessRunCallbacks callbacks,
+        HarnessRunTracer? runTracer,
         CancellationToken ct)
     {
         TransitionPhase(state, HarnessPhase.Verify, callbacks, null, messages);
@@ -322,7 +513,7 @@ public sealed class HarnessOrchestrator
 
         var summary = await StreamOneTurnAsync(
             messages, model, config, refFileIds, allowToolCalls: false, thinking, search, token, webSessionId,
-            callbacks, ct);
+            new AgentChatOptions { UseOpenAiTools = false }, callbacks, runTracer, ct);
 
         var finalText = (summary.Content ?? "").Trim();
         if (string.IsNullOrEmpty(finalText))
@@ -358,6 +549,12 @@ public sealed class HarnessOrchestrator
     private static void NotifyPhase(HarnessPhase phase, HarnessRunCallbacks callbacks) =>
         callbacks.OnPhaseChanged?.Invoke(phase);
 
+    private static string TruncateNotify(string prompt, string answer)
+    {
+        var text = prompt + " => " + answer;
+        return text.Length <= 500 ? text : text[..500] + "…";
+    }
+
     private async Task<WebChatResult> StreamOneTurnAsync(
         List<ChatMessage> messages,
         string model,
@@ -368,9 +565,17 @@ public sealed class HarnessOrchestrator
         bool search,
         string? token,
         string? webSessionId,
+        AgentChatOptions? chatOptions,
         HarnessRunCallbacks callbacks,
+        HarnessRunTracer? runTracer,
         CancellationToken ct)
     {
+        using var llmSpan = runTracer?.StartSpan("llm.completion", null, new Dictionary<string, object?>
+        {
+            ["model"] = model,
+            ["allowTools"] = allowToolCalls
+        });
+
         var answerBuilder = new StringBuilder();
         WebChatResult? result = null;
 
@@ -383,7 +588,8 @@ public sealed class HarnessOrchestrator
                            allowToolCalls,
                            ct,
                            token,
-                           webSessionId))
+                           webSessionId,
+                           chatOptions))
         {
             switch (ev)
             {
@@ -411,7 +617,8 @@ public sealed class HarnessOrchestrator
             allowToolCalls,
             ct,
             token,
-            webSessionId);
+            webSessionId,
+            chatOptions);
 
         if (string.IsNullOrWhiteSpace(result.Content) && answerBuilder.Length > 0)
         {
@@ -422,9 +629,18 @@ public sealed class HarnessOrchestrator
                 ReasoningContent = result.ReasoningContent,
                 ToolCalls = result.ToolCalls,
                 Model = result.Model,
-                FinishReason = result.FinishReason
+                FinishReason = result.FinishReason,
+                PromptTokens = result.PromptTokens,
+                CompletionTokens = result.CompletionTokens,
+                TotalTokens = result.TotalTokens
             };
         }
+
+        var inferenceSource = AgentChatClientFactory.UsesDirectApi(config) ? "api" : "web";
+        runTracer?.RecordLlmUsage(result, inferenceSource);
+        llmSpan?.SetAttribute("finishReason", result.FinishReason ?? "");
+        llmSpan?.SetAttribute("promptTokens", result.PromptTokens);
+        llmSpan?.SetAttribute("completionTokens", result.CompletionTokens);
 
         return result;
     }
@@ -466,4 +682,7 @@ public sealed class HarnessOrchestrator
 
     private static bool HasExploreToolEvidence(IReadOnlyList<ChatMessage> messages) =>
         messages.Any(m => string.Equals(m.Role, "tool", StringComparison.OrdinalIgnoreCase));
+
+    private static string TruncateIntent(string text) =>
+        text.Length <= 120 ? text : text[..120] + "…";
 }

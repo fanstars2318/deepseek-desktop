@@ -6,15 +6,15 @@ public static class HarnessSkillRegistry
     private static Dictionary<string, (HarnessSkill Skill, HarnessSkillSummary Summary)> _cache = new(StringComparer.OrdinalIgnoreCase);
     private static long _loadedStamp;
 
-    public static IReadOnlyList<HarnessSkillSummary> List(string? workspaceRoot = null)
+    public static IReadOnlyList<HarnessSkillSummary> List(string? workspaceRoot = null, IReadOnlyList<string>? extraRoots = null)
     {
-        RefreshIfNeeded(workspaceRoot);
+        RefreshIfNeeded(workspaceRoot, extraRoots);
         return _cache.Values.Select(x => x.Summary).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    public static bool TryGet(string id, string? workspaceRoot, out HarnessSkill? skill)
+    public static bool TryGet(string id, string? workspaceRoot, out HarnessSkill? skill, IReadOnlyList<string>? extraRoots = null)
     {
-        RefreshIfNeeded(workspaceRoot);
+        RefreshIfNeeded(workspaceRoot, extraRoots);
         if (_cache.TryGetValue(id, out var entry))
         {
             skill = entry.Skill;
@@ -27,22 +27,22 @@ public static class HarnessSkillRegistry
 
     public static void InvalidateCache() => Interlocked.Exchange(ref _loadedStamp, 0);
 
-    private static void RefreshIfNeeded(string? workspaceRoot)
+    private static void RefreshIfNeeded(string? workspaceRoot, IReadOnlyList<string>? extraRoots = null)
     {
-        var stamp = ComputeStamp(workspaceRoot);
+        var stamp = ComputeStamp(workspaceRoot, extraRoots);
         lock (Gate)
         {
             if (stamp == _loadedStamp && _cache.Count > 0)
                 return;
-            _cache = LoadAll(workspaceRoot);
+            _cache = LoadAll(workspaceRoot, extraRoots);
             _loadedStamp = stamp;
         }
     }
 
-    private static long ComputeStamp(string? workspaceRoot)
+    private static long ComputeStamp(string? workspaceRoot, IReadOnlyList<string>? extraRoots)
     {
         long hash = 0;
-        foreach (var root in HarnessInteropPaths.SkillScanRoots(workspaceRoot))
+        foreach (var root in HarnessInteropPaths.SkillScanRoots(workspaceRoot, extraRoots))
         {
             if (!Directory.Exists(root)) continue;
             foreach (var file in Directory.EnumerateFiles(root, "SKILL.md", SearchOption.AllDirectories))
@@ -52,11 +52,13 @@ public static class HarnessSkillRegistry
         return hash;
     }
 
-    private static Dictionary<string, (HarnessSkill, HarnessSkillSummary)> LoadAll(string? workspaceRoot)
+    private static Dictionary<string, (HarnessSkill, HarnessSkillSummary)> LoadAll(
+        string? workspaceRoot,
+        IReadOnlyList<string>? extraRoots)
     {
         var map = new Dictionary<string, (HarnessSkill, HarnessSkillSummary)>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var root in HarnessInteropPaths.SkillScanRoots(workspaceRoot))
+        foreach (var root in HarnessInteropPaths.SkillScanRoots(workspaceRoot, extraRoots))
         {
             if (!Directory.Exists(root)) continue;
             var source = InferSource(root);

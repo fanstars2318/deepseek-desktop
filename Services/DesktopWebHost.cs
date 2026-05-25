@@ -10,10 +10,13 @@ namespace DeepSeekBrowser.Services;
 /// <summary>
 /// 对话页与 Agent 页各用独立 WebView2，切换时仅显示/隐藏，避免反复 Navigate 导致卡顿。
 /// </summary>
-public sealed class DesktopWebHost
+public sealed class DesktopWebHost : IDdWebPages
 {
     private readonly WebView2 _chatView;
     private readonly WebView2 _agentView;
+
+    IDdPageMessenger IDdWebPages.Chat => Chat;
+    IDdPageMessenger IDdWebPages.Agent => Agent;
 
     public WebInjectService Chat { get; }
     public WebInjectService Agent { get; }
@@ -115,7 +118,7 @@ public sealed class DesktopWebHost
     {
         var delays = includeImmediate
             ? new[] { 0, 50, 150, 350, 700, 1200 }
-            : new[] { 50, 150, 350, 700 };
+            : new[] { 150, 500 };
         foreach (var delay in delays)
         {
             ct.ThrowIfCancellationRequested();
@@ -149,7 +152,7 @@ public sealed class DesktopWebHost
     public Task EnsureApiBridgeReadyAsync(CancellationToken ct = default) =>
         Chat.EnsureApiBridgeReadyAsync(ct);
 
-    public Task<Chat2ApiHealth> ProbeChat2ApiHealthAsync(string? configWebUserToken, string baseUrl,
+    public Task<Chat2ApiHealth?> ProbeChat2ApiHealthAsync(string? configWebUserToken, string baseUrl,
         CancellationToken ct = default) =>
         Chat.ProbeChat2ApiHealthAsync(configWebUserToken, baseUrl, ct);
 
@@ -310,6 +313,8 @@ public sealed class DesktopWebHost
             _chatView.Visibility = Visibility.Collapsed;
             Panel.SetZIndex(_agentView, 1);
             Panel.SetZIndex(_chatView, 0);
+            if (_agentView.IsVisible)
+                _agentView.Focus();
             WorkModeTrace.Write("ShowAgent: agent visible");
         });
     }

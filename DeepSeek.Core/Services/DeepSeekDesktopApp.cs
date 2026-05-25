@@ -30,6 +30,9 @@ public static class DeepSeekDesktopApp
 
     public const string VerifyShutdownEnvVar = "DEEPSEEK_DESKTOP_VERIFY_SHUTDOWN";
 
+    /// <summary>设为 1 时启动器跳过运行库检测（开发/CI）。</summary>
+    public const string SkipRuntimeCheckEnvVar = "DEEPSEEK_SKIP_RUNTIME_CHECK";
+
     public const string IntegrationMutexName = @"Global\deepseek_desktop.Chat2ApiTuiIntegration";
     public const string SingleInstanceMutexName = "DeepSeek.Desktop.SingleInstance";
     public const string LocalApiKeyFallback = "deepseek-local";

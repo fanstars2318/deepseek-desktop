@@ -15,14 +15,14 @@ internal sealed class EmbeddedSettingsSupport
     private readonly Func<Window?> _owner;
     private readonly Func<AppConfig> _getConfig;
     private readonly Action<AppConfig> _setConfig;
-    private readonly Func<WebInjectService> _agentInject;
+    private readonly Func<IDdPageMessenger> _agentInject;
 
     public EmbeddedSettingsSupport(
         McpHub mcpHub,
         Func<Window?> owner,
         Func<AppConfig> getConfig,
         Action<AppConfig> setConfig,
-        Func<WebInjectService> agentInject)
+        Func<IDdPageMessenger> agentInject)
     {
         _mcpHub = mcpHub;
         _owner = owner;
@@ -117,6 +117,24 @@ internal sealed class EmbeddedSettingsSupport
             localApiPort = config.LocalApiPort,
             maxAgentSteps = config.MaxAgentSteps,
             maxSubAgentSteps = config.MaxSubAgentSteps,
+            enableSubAgents = config.EnableSubAgents,
+            enableTeamWorkflow = config.EnableTeamWorkflow,
+            enableParallelExplore = config.EnableParallelExplore,
+            enableDebateWorkflow = config.EnableDebateWorkflow,
+            maxConcurrentSubAgents = config.MaxConcurrentSubAgents,
+            parallelExploreFanOut = config.ParallelExploreFanOut,
+            debateMaxRounds = config.DebateMaxRounds,
+            agentAutoIntentRouting = config.AgentAutoIntentRouting,
+            agentIntentUseLlmPlanner = config.AgentIntentUseLlmPlanner,
+            agentIntentCacheEnabled = config.AgentIntentCacheEnabled,
+            agentPromptMinimalMode = config.AgentPromptMinimalMode,
+            agentMcpToolsMaxInRequest = config.AgentMcpToolsMaxInRequest,
+            agentMcpCatalogMaxLines = config.AgentMcpCatalogMaxLines,
+            agentContextCompactTokenThreshold = config.AgentContextCompactTokenThreshold,
+            agentToolOutputInlineMaxChars = config.AgentToolOutputInlineMaxChars,
+            agentSkillMaxChars = config.AgentSkillMaxChars,
+            agentWorkspaceSnapshotMaxEntries = config.AgentWorkspaceSnapshotMaxEntries,
+            enableDynamicGroupChat = config.EnableDynamicGroupChat,
             defaultAgentStrategy = config.DefaultAgentStrategy,
             agentSandboxLazyInit = config.AgentSandboxLazyInit,
             chat2ApiSummary,
@@ -126,6 +144,29 @@ internal sealed class EmbeddedSettingsSupport
             agentAllowShell = config.AgentAllowShell,
             enableAdaptiveOutputEscalation = config.EnableAdaptiveOutputEscalation,
             agentApprovalMode = config.AgentApprovalMode ?? "smart",
+            agentInferenceMode = config.AgentInferenceMode ?? AgentInferenceModes.Web,
+            agentToolCallingProtocol = config.AgentToolCallingProtocol ?? AgentToolCallingProtocols.Xml,
+            agentApiKey = string.IsNullOrWhiteSpace(config.AgentApiKey) ? config.DeepSeekApiKey : config.AgentApiKey,
+            agentApiBaseUrl = config.AgentApiBaseUrl ?? config.ApiBaseUrl,
+            agentReasoningEffort = config.AgentReasoningEffort ?? AgentReasoningEfforts.Max,
+            agentThinkingDisplayMode = config.AgentThinkingDisplayMode ?? AgentThinkingDisplayModes.Normal,
+            agentNotifyScript = config.AgentNotifyScript ?? "",
+            agentWebSearchScript = config.AgentWebSearchScript ?? "",
+            agentVisionModel = config.AgentVisionModel ?? "",
+            agentVisionApiBaseUrl = config.AgentVisionApiBaseUrl ?? "",
+            agentVisionApiKey = config.AgentVisionApiKey ?? "",
+            agentStructuredTraceEnabled = config.AgentStructuredTraceEnabled,
+            agentLangfuseEnabled = config.AgentLangfuseEnabled,
+            agentLangfuseHost = config.AgentLangfuseHost ?? "https://cloud.langfuse.com",
+            agentLangfuseProject = config.AgentLangfuseProject ?? "",
+            agentLangfusePublicKey = config.AgentLangfusePublicKey ?? "",
+            agentLangfuseSecretKey = config.AgentLangfuseSecretKey ?? "",
+            agentTraceRetentionDays = config.AgentTraceRetentionDays,
+            agentSemanticMemoryEnabled = config.AgentSemanticMemoryEnabled,
+            agentSemanticMemoryAutoExtract = config.AgentSemanticMemoryAutoExtract,
+            agentSemanticMemoryTopK = config.AgentSemanticMemoryTopK,
+            agentSemanticMemorySessionTtlDays = config.AgentSemanticMemorySessionTtlDays,
+            agentEmbeddingModel = config.AgentEmbeddingModel ?? "",
             configPath = ConfigStore.ConfigFilePath,
             mcpServers = config.McpServers.Select(BuildMcpDto).ToList()
         };
@@ -156,6 +197,42 @@ internal sealed class EmbeddedSettingsSupport
             config.MaxAgentSteps = Math.Clamp(steps, 1, 100);
         if (msg.TryGetProperty("maxSubAgentSteps", out var subEl) && subEl.TryGetInt32(out var subSteps))
             config.MaxSubAgentSteps = Math.Clamp(subSteps, 1, 50);
+        if (msg.TryGetProperty("enableSubAgents", out var subOnEl))
+            config.EnableSubAgents = subOnEl.GetBoolean();
+        if (msg.TryGetProperty("enableTeamWorkflow", out var teamOnEl))
+            config.EnableTeamWorkflow = teamOnEl.GetBoolean();
+        if (msg.TryGetProperty("enableParallelExplore", out var parOnEl))
+            config.EnableParallelExplore = parOnEl.GetBoolean();
+        if (msg.TryGetProperty("enableDebateWorkflow", out var debOnEl))
+            config.EnableDebateWorkflow = debOnEl.GetBoolean();
+        if (msg.TryGetProperty("maxConcurrentSubAgents", out var concEl) && concEl.TryGetInt32(out var conc))
+            config.MaxConcurrentSubAgents = Math.Clamp(conc, 1, 10);
+        if (msg.TryGetProperty("parallelExploreFanOut", out var fanEl) && fanEl.TryGetInt32(out var fan))
+            config.ParallelExploreFanOut = Math.Clamp(fan, 1, config.MaxConcurrentSubAgents);
+        if (msg.TryGetProperty("debateMaxRounds", out var debRoundsEl) && debRoundsEl.TryGetInt32(out var debRounds))
+            config.DebateMaxRounds = Math.Clamp(debRounds, 1, 8);
+        if (msg.TryGetProperty("agentAutoIntentRouting", out var intentRouteEl))
+            config.AgentAutoIntentRouting = intentRouteEl.GetBoolean();
+        if (msg.TryGetProperty("agentIntentUseLlmPlanner", out var intentLlmEl))
+            config.AgentIntentUseLlmPlanner = intentLlmEl.GetBoolean();
+        if (msg.TryGetProperty("agentIntentCacheEnabled", out var intentCacheEl))
+            config.AgentIntentCacheEnabled = intentCacheEl.GetBoolean();
+        if (msg.TryGetProperty("agentPromptMinimalMode", out var promptMinEl))
+            config.AgentPromptMinimalMode = promptMinEl.GetBoolean();
+        if (msg.TryGetProperty("agentMcpToolsMaxInRequest", out var mcpMaxEl) && mcpMaxEl.TryGetInt32(out var mcpMax))
+            config.AgentMcpToolsMaxInRequest = Math.Clamp(mcpMax, 4, 32);
+        if (msg.TryGetProperty("agentMcpCatalogMaxLines", out var mcpLinesEl) && mcpLinesEl.TryGetInt32(out var mcpLines))
+            config.AgentMcpCatalogMaxLines = Math.Clamp(mcpLines, 8, 64);
+        if (msg.TryGetProperty("agentContextCompactTokenThreshold", out var compactEl) && compactEl.TryGetInt32(out var compact))
+            config.AgentContextCompactTokenThreshold = Math.Max(0, compact);
+        if (msg.TryGetProperty("agentToolOutputInlineMaxChars", out var toolOutEl) && toolOutEl.TryGetInt32(out var toolOut))
+            config.AgentToolOutputInlineMaxChars = Math.Clamp(toolOut, 500, 20_000);
+        if (msg.TryGetProperty("agentSkillMaxChars", out var skillMaxEl) && skillMaxEl.TryGetInt32(out var skillMax))
+            config.AgentSkillMaxChars = Math.Clamp(skillMax, 800, 20_000);
+        if (msg.TryGetProperty("agentWorkspaceSnapshotMaxEntries", out var snapEl) && snapEl.TryGetInt32(out var snap))
+            config.AgentWorkspaceSnapshotMaxEntries = Math.Clamp(snap, 10, 120);
+        if (msg.TryGetProperty("enableDynamicGroupChat", out var dynGroupEl))
+            config.EnableDynamicGroupChat = dynGroupEl.GetBoolean();
         if (msg.TryGetProperty("defaultAgentStrategy", out var stratEl))
             config.DefaultAgentStrategy = HarnessStrategyResolver.Normalize(stratEl.GetString());
         if (msg.TryGetProperty("agentWorkspaceRoot", out var wsEl))
@@ -171,6 +248,55 @@ internal sealed class EmbeddedSettingsSupport
         }
         if (msg.TryGetProperty("agentSandboxLazyInit", out var sbLazyEl))
             config.AgentSandboxLazyInit = sbLazyEl.GetBoolean();
+        if (msg.TryGetProperty("agentInferenceMode", out var infEl))
+            config.AgentInferenceMode = infEl.GetString() ?? AgentInferenceModes.Web;
+        if (msg.TryGetProperty("agentToolCallingProtocol", out var protoEl))
+            config.AgentToolCallingProtocol = protoEl.GetString() ?? AgentToolCallingProtocols.Xml;
+        if (msg.TryGetProperty("agentApiKey", out var keyEl))
+            config.AgentApiKey = keyEl.GetString() ?? "";
+        if (msg.TryGetProperty("agentApiBaseUrl", out var baseEl))
+            config.AgentApiBaseUrl = baseEl.GetString() ?? "";
+        if (msg.TryGetProperty("agentReasoningEffort", out var effortEl))
+            config.AgentReasoningEffort = AgentReasoningEfforts.Normalize(effortEl.GetString());
+        if (msg.TryGetProperty("agentThinkingDisplayMode", out var thinkEl))
+            config.AgentThinkingDisplayMode = thinkEl.GetString() ?? AgentThinkingDisplayModes.Normal;
+        if (msg.TryGetProperty("agentNotifyScript", out var notifyEl))
+            config.AgentNotifyScript = notifyEl.GetString() ?? "";
+        if (msg.TryGetProperty("agentWebSearchScript", out var webSearchScriptEl))
+            config.AgentWebSearchScript = webSearchScriptEl.GetString() ?? "";
+        if (msg.TryGetProperty("agentVisionModel", out var visionModelEl))
+            config.AgentVisionModel = visionModelEl.GetString() ?? "";
+        if (msg.TryGetProperty("agentVisionApiBaseUrl", out var visionBaseEl))
+            config.AgentVisionApiBaseUrl = visionBaseEl.GetString() ?? "";
+        if (msg.TryGetProperty("agentVisionApiKey", out var visionKeyEl))
+            config.AgentVisionApiKey = visionKeyEl.GetString() ?? "";
+        if (msg.TryGetProperty("agentStructuredTraceEnabled", out var traceEl))
+            config.AgentStructuredTraceEnabled = traceEl.GetBoolean();
+        if (msg.TryGetProperty("agentLangfuseEnabled", out var lfOnEl))
+            config.AgentLangfuseEnabled = lfOnEl.GetBoolean();
+        if (msg.TryGetProperty("agentLangfuseHost", out var lfHostEl))
+            config.AgentLangfuseHost = lfHostEl.GetString() ?? config.AgentLangfuseHost;
+        if (msg.TryGetProperty("agentLangfuseProject", out var lfProjEl))
+            config.AgentLangfuseProject = lfProjEl.GetString() ?? "";
+        if (msg.TryGetProperty("agentLangfusePublicKey", out var lfPubEl))
+            config.AgentLangfusePublicKey = lfPubEl.GetString() ?? "";
+        if (msg.TryGetProperty("agentLangfuseSecretKey", out var lfSecEl))
+            config.AgentLangfuseSecretKey = lfSecEl.GetString() ?? "";
+        if (msg.TryGetProperty("agentTraceRetentionDays", out var traceDaysEl) && traceDaysEl.TryGetInt32(out var traceDays))
+            config.AgentTraceRetentionDays = Math.Max(0, traceDays);
+        if (msg.TryGetProperty("agentSemanticMemoryEnabled", out var memEl))
+            config.AgentSemanticMemoryEnabled = memEl.GetBoolean();
+        if (msg.TryGetProperty("agentSemanticMemoryAutoExtract", out var memAutoEl))
+            config.AgentSemanticMemoryAutoExtract = memAutoEl.GetBoolean();
+        if (msg.TryGetProperty("agentSemanticMemoryTopK", out var topKEl) && topKEl.TryGetInt32(out var topK))
+            config.AgentSemanticMemoryTopK = Math.Clamp(topK, 1, 32);
+        if (msg.TryGetProperty("agentSemanticMemorySessionTtlDays", out var memTtlEl) && memTtlEl.TryGetInt32(out var memTtl))
+            config.AgentSemanticMemorySessionTtlDays = Math.Max(0, memTtl);
+        if (msg.TryGetProperty("agentEmbeddingModel", out var embModelEl))
+            config.AgentEmbeddingModel = embModelEl.GetString() ?? config.AgentEmbeddingModel;
+
+        if (AgentChatClientFactory.UsesDirectApi(config))
+            config.AgentToolCallingProtocol = AgentToolCallingProtocols.OpenAi;
 
         _setConfig(config);
         AgentDesktopConfigSync.Apply(config);
@@ -273,6 +399,8 @@ internal sealed class EmbeddedSettingsSupport
     {
         var candidates = new[]
         {
+            Path.Combine(AppContext.BaseDirectory, "docs", "AGENT_USER_GUIDE.md"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "docs", "AGENT_USER_GUIDE.md")),
             Path.Combine(AppContext.BaseDirectory, "docs", "HARNESS.md"),
             Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "docs", "HARNESS.md"))
         };

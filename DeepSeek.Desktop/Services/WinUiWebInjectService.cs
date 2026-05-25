@@ -15,6 +15,7 @@ public sealed class WinUiWebInjectService : IWebInjectBridge
     private string? _workModeClientScript;
     private string? _overlayScript;
     private string? _overlayCss;
+    private string? _lastWorkModeStateJson;
 
     public event EventHandler<JsonElement>? MessageReceived;
 
@@ -237,6 +238,9 @@ public sealed class WinUiWebInjectService : IWebInjectBridge
     {
         if (_webView.CoreWebView2 is null) return;
         var json = JsonSerializer.Serialize(state, AgentSessionJson.Options);
+        if (string.Equals(json, _lastWorkModeStateJson, StringComparison.Ordinal))
+            return;
+        _lastWorkModeStateJson = json;
         await _webView.CoreWebView2.ExecuteScriptAsync(
             "(function(m){try{"
             + "if(window.DsWorkMode&&window.DsWorkMode.applyState){window.DsWorkMode.applyState(m);return;}"

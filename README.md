@@ -1,29 +1,28 @@
-# DeepSeek Desktop
+# DeepSeek Desktop (DD)
 
 [![Windows](https://img.shields.io/badge/平台-Windows%2010%2F11-blue)](https://github.com/fanstars2318/deepseek-desktop)
 [![Release](https://img.shields.io/github/v/release/fanstars2318/deepseek-desktop?label=最新版本)](https://github.com/fanstars2318/deepseek-desktop/releases)
 [![.NET](https://img.shields.io/badge/.NET-10%20(WPF)%20%2F%209%20(Core)-512BD4)](https://dotnet.microsoft.com/)
 
-**DeepSeek Desktop** 是一款面向 Windows 的第三方桌面客户端：在 WebView2 中嵌入 [DeepSeek 网页对话](https://chat.deepseek.com)，并提供 **Agent 工作台**、**内嵌 API 管理（Chat2API）**、**MCP 工具** 与 **本地工作区沙盒**。V2 起 Agent 使用仓库内置的 **C# Harness** 编排（ReAct / Blueprint），**无需** 再打包或运行 `deepseek-tui.exe`。
+**DeepSeek Desktop (DD)** 是一款面向 Windows 的第三方桌面客户端：在 WebView2（或可选 Qt WebEngine）中嵌入 [DeepSeek 网页对话](https://chat.deepseek.com)，并提供 **Agent 工作台**、**内嵌 API 管理（Chat2API）**、**MCP 工具** 与 **本地工作区沙盒**。Agent 使用仓库内置的 **C# Harness** 编排（ReAct / Blueprint），**无需** 再打包或运行 `deepseek-tui.exe`。
 
 > **免责声明：** 本项目为社区独立作品，与 DeepSeek 官方无隶属关系。详见 [DISCLAIMER.md](./DISCLAIMER.md)。
 
-**GitHub 简介（About）：** Windows 版 DeepSeek 桌面客户端 — 官网聊天 + 进程内 Agent Harness + 汉化 Chat2API + Automations + MCP，一键 `build.ps1` 发布到 `publish/`。
+**GitHub 简介（About）：** DeepSeek Desktop (DD) — WPF/Qt Hybrid 壳 + C# Harness + Chat2API + MCP，一键 `build.ps1` 发布到 `publish/`。
 
 ---
 
-## V2.0 新特性
+## v2.1.0 新特性
 
 | 能力 | 说明 |
 |------|------|
-| **原生 Agent Harness** | `DeepSeek.Core/Services/Harness` 进程内编排，工具/MCP/沙盒/Phase 策略统一在 C# 中 |
-| **本地工作区沙盒** | DeerFlow 风格虚拟路径（`/mnt/user-data/workspace` 等）+ 懒加载本地沙盒 |
-| **Automations** | Agent 页内常驻自动化：定时 / Webhook 触发后台任务 |
-| **消息渲染** | Markdown + KaTeX 公式 + 代码高亮（对齐网页版阅读体验） |
-| **单一发布目录** | `.\build.ps1` 仅输出到 `publish/`，不再向仓库根 `bin/` 复制发布包 |
-| **可选 DeepSeek-TUI** | `third-party/DeepSeek-TUI` 仍可作为参考 submodule，**不是** V2 运行时依赖 |
+| **DD 统一命名** | `IDdWebPages`、`Services/Dd/`、`DeepSeek.DdBridge`、管道 `dd-desktop-bridge`（见 [docs/DD_NAMING.md](./docs/DD_NAMING.md)） |
+| **Qt Hybrid 可选** | `DeepSeek.Qt.exe` 主壳 + `DeepSeek.Bridge.exe` 子进程；WPF 仍为默认发布路径 |
+| **DdBridge IPC** | `ddReady` / `ddSurface` 控制消息；`scripts/verify-dd-ipc.ps1` 验证 |
+| **WPF 构建含 Bridge** | `-LegacyWpf` 同步发布 `DeepSeek.Bridge.exe` 与 DD inject 资源 |
+| **性能优化** | 减少重复配置加载、workMode 重试、登录轮询 IPC |
 
-预编译 Windows x64 包见 [Releases](https://github.com/fanstars2318/deepseek-desktop/releases)（例如 `DeepSeek-Desktop-v2.0.0-win-x64.zip`）。
+预编译 Windows x64 包见 [Releases](https://github.com/fanstars2318/deepseek-desktop/releases)（`DeepSeek-Desktop-v2.1.0-win-x64.zip`）。
 
 ---
 
@@ -40,29 +39,36 @@
 
 ---
 
-## 架构（V2）
+## 架构（DD）
 
 ```mermaid
 flowchart TB
-  subgraph Shell["桌面壳 WPF 默认"]
-    Chat["普通对话\nchat.deepseek.com"]
-    Agent["Agent 页\nHarness + 内嵌面板"]
+  subgraph Shell["桌面壳"]
+    WPF["WPF 默认\nDeepSeek.App.exe"]
+    QtExe["Qt 可选\nDeepSeek.Qt.exe"]
+  end
+
+  subgraph Bridge["DdBridge"]
+    DdBridge["DeepSeek.Bridge.exe"]
+    Pipe["dd-desktop-bridge"]
   end
 
   subgraph Core["DeepSeek.Core"]
     CFG["ConfigStore"]
-    Bridge["网页桥 / Chat2API"]
+    WebBridge["网页桥 / Chat2API"]
     Harness["HarnessOrchestrator"]
     Sandbox["本地工作区沙盒"]
     Auto["Automations"]
   end
 
-  Chat --> Bridge
-  Agent --> Harness
-  Harness --> Bridge
+  WPF --> Core
+  QtExe --> Pipe --> DdBridge --> Core
+  Harness --> WebBridge
   Harness --> Sandbox
-  Agent --> Auto
+  Auto --> Harness
 ```
+
+WPF 路径下 Agent/Chat 均在同一进程 WebView2 中；Qt Hybrid 路径下 UI 在 Qt，Harness 与 Chat API 桥在 `DeepSeek.Bridge.exe`。详见 [docs/DD_DESKTOP.md](./docs/DD_DESKTOP.md)。
 
 推理默认经已登录网页会话与 Chat2API 桥接，无需对外暴露 `5111` 端口（除非在设置中手动开启外部 OpenAI API）。
 
@@ -76,21 +82,24 @@ flowchart TB
 - [.NET SDK 10](https://dotnet.microsoft.com/download)（WPF 主壳）
 - [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)
 - 从源码构建 Chat2API UI 时需 [Node.js](https://nodejs.org/)（仓库已附带 `Assets/chat2api/` 构建产物时可跳过）
+- 构建 Qt Hybrid 时需 Qt 6.6+ MSVC WebEngine kit（可选）
 
-### 克隆（仅桌面端源码）
+### 克隆
 
 ```powershell
 git clone https://github.com/fanstars2318/deepseek-desktop.git
 cd deepseek-desktop
-# 可选参考上游 Agent 实现（非 V2 运行时必需）：
-# git submodule update --init --recursive
 ```
 
 ### 构建与运行
 
 ```powershell
-.\build.ps1
+# 默认 WPF 发布（推荐，含 DdBridge + verify-dd-ipc）
+.\build.ps1 -LegacyWpf -NoAutoQt
 .\publish\DeepSeek.exe
+
+# 可选 Qt 6 Hybrid 主壳
+.\build.ps1 -Qt
 ```
 
 ```powershell
@@ -127,11 +136,13 @@ deepseek-desktop/
 ├── DeepSeek.Core.Tests/     # 单元测试
 ├── DeepSeek.Desktop/        # WinUI 实验壳（build.ps1 -WinUi）
 ├── DeepSeekBrowser.csproj   # WPF 主壳（默认）
-├── Assets/                  # agent、chat2api、inject 静态资源
-├── Services/                # WPF 宿主：WebView、AgentHost、注入
-├── scripts/                 # 构建与验证脚本
-├── docs/                    # 设计说明（如 HARNESS.md）
-├── third-party/             # 可选 submodule（DeepSeek-TUI 参考）
+├── DeepSeek.DdBridge/       # DdBridge 子进程（DeepSeek.Bridge.exe）
+├── DeepSeek.Qt/             # Qt 6 Hybrid 主壳（可选，CMake）
+├── DeepSeek.Launcher/       # DeepSeek.exe 运行时启动器
+├── Services/Dd/             # DD IPC：DdDesktopIpc、DdBridgeWebHost
+├── Assets/                  # agent、chat2api、inject（含 dd-webview-shim.js）
+├── scripts/                 # 构建与验证（verify-dd-ipc.ps1 等）
+├── docs/                    # DD_NAMING.md、DD_DESKTOP.md、HARNESS.md
 └── build.ps1                # 发布到 publish/
 ```
 
@@ -141,12 +152,16 @@ deepseek-desktop/
 
 ## 从源码发布 Release 包
 
-维护者本地生成 zip 并上传 GitHub Release 的示例：
+```powershell
+.\scripts\publish-github-release.ps1 -Version 2.1.0 -Tag v2.1.0
+```
+
+或手动：
 
 ```powershell
-.\build.ps1
-Compress-Archive -Path .\publish\* -DestinationPath .\DeepSeek-Desktop-v2.0.0-win-x64.zip
-gh release create v2.0.0 .\DeepSeek-Desktop-v2.0.0-win-x64.zip --title "v2.0.0" --notes "V2: 原生 Harness、本地沙盒、Automations、公式渲染"
+.\build.ps1 -LegacyWpf -NoAutoQt
+Compress-Archive -Path .\publish\* -DestinationPath .\DeepSeek-Desktop-v2.1.0-win-x64.zip
+gh release create v2.1.0 .\DeepSeek-Desktop-v2.1.0-win-x64.zip --title "v2.1.0" --notes-file RELEASE_v2.1.0.md
 ```
 
 ---
@@ -157,7 +172,10 @@ gh release create v2.0.0 .\DeepSeek-Desktop-v2.0.0-win-x64.zip --title "v2.0.0" 
 本客户端是第三方封装，提供桌面集成、Agent 工作台、MCP 与本地工作区；模型能力仍依赖 DeepSeek 网页账号与会话。
 
 **还需要 DeepSeek-TUI 吗？**  
-V2 **不需要**。`third-party/DeepSeek-TUI` 仅作可选参考 submodule。
+**不需要**。`third-party/DeepSeek-TUI` 仅作可选参考 submodule。
+
+**WPF 与 Qt Hybrid 怎么选？**  
+默认下载/构建 WPF 包即可。安装 Qt 6 WebEngine 后可用 `build.ps1 -Qt` 构建 `DeepSeek.Qt.exe` 主壳。
 
 **发布目录在哪？**  
 唯一标准路径：`publish\DeepSeek.exe`（由 `build.ps1` 生成）。

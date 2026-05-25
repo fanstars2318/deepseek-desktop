@@ -6,5 +6,5 @@ public interface IHarnessSandbox : IDisposable
     HarnessSandboxKind Kind { get; }
     string WorkspaceRoot { get; }
     bool IsAlive { get; }
-    Task<string> ExecuteShellAsync(string command, CancellationToken ct);
+    Task<string> ExecuteShellAsync(string command, CancellationToken ct, HarnessShellRunOptions? options = null);
 }

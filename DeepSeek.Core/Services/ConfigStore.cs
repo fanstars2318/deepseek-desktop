@@ -8,6 +8,8 @@ namespace DeepSeekBrowser.Services;
 public static class ConfigStore
 {
     private static readonly object SaveGate = new();
+    private static string? _cachedJson;
+    private static long _cachedWriteTicks = -1;
 
     private static string ConfigDir
     {
@@ -34,18 +36,39 @@ public static class ConfigStore
             try
             {
                 if (!File.Exists(ConfigFilePath))
+                {
+                    InvalidateCache();
                     return new AppConfig();
+                }
+
+                var writeTicks = File.GetLastWriteTimeUtc(ConfigFilePath).Ticks;
+                if (_cachedJson is not null && writeTicks == _cachedWriteTicks)
+                    return DeserializeCached(_cachedJson);
 
                 var json = File.ReadAllText(ConfigFilePath);
-                var cfg = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
-                MigrateLegacyConfig(cfg);
-                return cfg;
+                _cachedJson = json;
+                _cachedWriteTicks = writeTicks;
+                return DeserializeCached(json);
             }
             catch
             {
+                InvalidateCache();
                 return new AppConfig();
             }
         }
+    }
+
+    private static void InvalidateCache()
+    {
+        _cachedJson = null;
+        _cachedWriteTicks = -1;
+    }
+
+    private static AppConfig DeserializeCached(string json)
+    {
+        var cfg = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+        MigrateLegacyConfig(cfg);
+        return cfg;
     }
 
     private static void MigrateLegacyConfig(AppConfig cfg)
@@ -62,6 +85,10 @@ public static class ConfigStore
             Directory.CreateDirectory(ConfigDir);
             var json = JsonSerializer.Serialize(config, JsonOptions);
             WriteAtomic(ConfigFilePath, json);
+            _cachedJson = json;
+            _cachedWriteTicks = File.Exists(ConfigFilePath)
+                ? File.GetLastWriteTimeUtc(ConfigFilePath).Ticks
+                : -1;
         }
     }
 

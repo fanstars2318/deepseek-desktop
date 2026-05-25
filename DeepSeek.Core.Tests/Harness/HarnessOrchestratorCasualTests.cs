@@ -13,7 +13,7 @@ public sealed class HarnessOrchestratorCasualTests
         var orchestrator = new HarnessOrchestrator(
             chat,
             new McpHub(),
-            new ApprovalGate(new AppConfig { AgentApprovalMode = "never" }, (_, _) => Task.FromResult(true)));
+            HarnessTestPermission.AllowAll());
 
         var result = await orchestrator.RunAsync(
             new HarnessRunRequest
@@ -42,7 +42,7 @@ public sealed class HarnessOrchestratorCasualTests
         var orchestrator = new HarnessOrchestrator(
             chat,
             new McpHub(),
-            new ApprovalGate(new AppConfig { AgentApprovalMode = "never" }, (_, _) => Task.FromResult(true)));
+            HarnessTestPermission.AllowAll());
 
         var result = await orchestrator.RunAsync(
             new HarnessRunRequest
@@ -75,7 +75,8 @@ public sealed class HarnessOrchestratorCasualTests
             bool allowToolCalls,
             CancellationToken ct,
             string? webUserToken = null,
-            string? webChatSessionId = null)
+            string? webChatSessionId = null,
+            AgentChatOptions? options = null)
         {
             CompleteCalls++;
             LastAllowToolCalls = allowToolCalls;
@@ -95,7 +96,8 @@ public sealed class HarnessOrchestratorCasualTests
             bool allowToolCalls,
             CancellationToken ct,
             string? webUserToken = null,
-            string? webChatSessionId = null)
+            string? webChatSessionId = null,
+            AgentChatOptions? options = null)
         {
             yield return new WebChatStreamDone(await CompleteAsync(
                 messages, model, thinking, search, refFileIds, allowToolCalls, ct, webUserToken, webChatSessionId));

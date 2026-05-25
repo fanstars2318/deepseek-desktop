@@ -3,7 +3,7 @@ using DeepSeekBrowser.Services.Harness.Sandbox;
 namespace DeepSeekBrowser.Services;
 
 /// <summary>应用退出时的统一清理（MainWindow / App.OnExit 共用）。</summary>
-internal static class ShutdownCoordinator
+public static class ShutdownCoordinator
 {
     private static DesktopAgentHost? _agentHost;
     private static LocalOpenAiServer? _localApi;

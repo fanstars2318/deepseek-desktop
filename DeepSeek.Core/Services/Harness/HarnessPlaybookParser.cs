@@ -36,7 +36,8 @@ public static class HarnessPlaybookParser
             Description = GetString(root, "description"),
             Strategy = GetString(root, "strategy"),
             SystemAppend = GetString(root, "system_append") ?? GetString(root, "systemAppend"),
-            Steps = GetStringList(root, "steps")
+            Steps = GetStringList(root, "steps"),
+            Blocks = GetStringList(root, "blocks")
         };
 
         dto.Verify = ParseVerifyYaml(yaml, root);
@@ -185,6 +186,7 @@ public static class HarnessPlaybookParser
             Strategy = string.IsNullOrWhiteSpace(dto.Strategy) ? null : dto.Strategy.Trim(),
             SystemAppend = dto.SystemAppend?.Trim(),
             Steps = dto.Steps?.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).ToList() ?? [],
+            Blocks = dto.Blocks?.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).ToList() ?? [],
             Verify = verify
         };
     }
@@ -216,6 +218,7 @@ public static class HarnessPlaybookParser
         public string? SystemAppend { get; set; }
 
         public List<string>? Steps { get; set; }
+        public List<string>? Blocks { get; set; }
         public HarnessPlaybookVerifyDto? Verify { get; set; }
     }
 

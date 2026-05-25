@@ -16,11 +16,30 @@ public static class HarnessInteropPaths
         yield return Path.Combine(home, ".claude", "skills");
         yield return Path.Combine(home, ".codex", "skills");
 
+        yield return Path.Combine(home, ".agents", "skills");
+        yield return Path.Combine(home, ".deepcode", "skills");
+
         if (string.IsNullOrWhiteSpace(workspaceRoot)) yield break;
 
         yield return Path.Combine(workspaceRoot, ".deepseek", "skills");
         yield return Path.Combine(workspaceRoot, ".cursor", "skills");
         yield return Path.Combine(workspaceRoot, ".agents", "skills");
+        yield return Path.Combine(workspaceRoot, ".deepcode", "skills");
+    }
+
+    public static IEnumerable<string> SkillScanRoots(string? workspaceRoot, IEnumerable<string>? extraRoots)
+    {
+        foreach (var root in SkillScanRoots(workspaceRoot))
+            yield return root;
+
+        if (extraRoots is null) yield break;
+        foreach (var extra in extraRoots)
+        {
+            if (string.IsNullOrWhiteSpace(extra)) continue;
+            var path = extra.Trim();
+            if (Directory.Exists(path))
+                yield return path;
+        }
     }
 
     public static IEnumerable<string> McpConfigPaths()

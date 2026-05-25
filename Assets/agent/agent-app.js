@@ -87,9 +87,10 @@
       msg.type === "agentSession" && msg.payload && typeof msg.payload === "object"
         ? msg.payload
         : msg.type === "agentPlaybooks" ||
-            msg.type === "agentCheckpoint" ||
-            msg.type === "agentSkills" ||
-            msg.type === "agentHarnessReload" ||
+          msg.type === "agentCheckpoint" ||
+          msg.type === "agentSkills" ||
+          msg.type === "agentWorkspaceFiles" ||
+          msg.type === "agentHarnessReload" ||
             msg.type === "agentWorkspace" ||
             msg.type === "agentAutomation"
           ? msg
@@ -616,9 +617,19 @@
     updateComposerState();
   }
 
+  let loginPollTimer = null;
+
+  function stopLoginPoll() {
+    if (loginPollTimer) {
+      clearInterval(loginPollTimer);
+      loginPollTimer = null;
+    }
+  }
+
   function setLoggedIn(online) {
     state.loggedIn = !!online;
     state.authResolved = true;
+    stopLoginPoll();
     const dot = $("login-dot");
     const label = $("login-label");
     const banner = $("login-banner");
@@ -924,15 +935,7 @@
       thinkingToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
     });
 
-    const tick = setInterval(() => {
-      if (!think.isConnected || state.currentRun?.thinkEl !== think) {
-        clearInterval(tick);
-        return;
-      }
-      updateThinkTitle(state.currentRun);
-    }, 1000);
-
-    return {
+    const panel = {
       thinkEl: think,
       phaseEl: phase,
       subtitleEl: subtitle,
@@ -945,11 +948,25 @@
       thinkStartTime: Date.now(),
       thinkDone: false,
       thinkRecords: [],
+      thinkTitleTick: null,
     };
+    panel.thinkTitleTick = setInterval(() => {
+      if (!think.isConnected || state.currentRun?.thinkEl !== think || panel.thinkDone) {
+        clearInterval(panel.thinkTitleTick);
+        panel.thinkTitleTick = null;
+        return;
+      }
+      updateThinkTitle(state.currentRun);
+    }, 1000);
+    return panel;
   }
 
   function finalizeThinkBlock(run) {
     if (!run) return;
+    if (run.thinkTitleTick) {
+      clearInterval(run.thinkTitleTick);
+      run.thinkTitleTick = null;
+    }
     run.thinkDone = true;
     if (run.proseEl?.textContent?.trim()) {
       renderThinkProse(run.proseEl, run.proseEl.textContent);
@@ -2293,15 +2310,7 @@
   }
 
   function showAutomationsIntroIfNeeded() {
-    try {
-      if (localStorage.getItem(AUTOMATIONS_INTRO_KEY)) return;
-    } catch (_) {}
-    const backdrop = $("auto-intro-backdrop");
-    const modal = $("auto-intro");
-    if (!backdrop || !modal) return;
-    backdrop.hidden = false;
-    backdrop.setAttribute("aria-hidden", "false");
-    modal.hidden = false;
+    // 不再自动弹出全屏遮罩，避免挡住输入框与其它按钮；用户可从设置进入 Automations
   }
 
   function bindAutomationsIntro() {
@@ -2371,6 +2380,32 @@
     return closeSettingsMenu;
   }
 
+  let closeSettingsMenuRef = null;
+
+  function bindComposerFocus() {
+    const outer = $("chat-input")?.closest(".ds-composer-outer");
+    if (!outer || outer._dsComposerBound) return;
+    outer._dsComposerBound = true;
+    outer.addEventListener(
+      "pointerdown",
+      () => {
+        if (typeof closeCtxMenu === "function") closeCtxMenu();
+        closeSlashPalette();
+        if (typeof closeSettingsMenuRef === "function") closeSettingsMenuRef();
+        const backdrop = $("auto-intro-backdrop");
+        const modal = $("auto-intro");
+        if (backdrop) {
+          backdrop.hidden = true;
+          backdrop.setAttribute("aria-hidden", "true");
+        }
+        if (modal) modal.hidden = true;
+        const input = $("chat-input");
+        if (input && !input.disabled) requestAnimationFrame(() => input.focus());
+      },
+      true
+    );
+  }
+
   let embeddedPanel = null;
 
   function bindUi() {
@@ -2382,14 +2417,13 @@
       if ((frame.src || "").indexOf("/chat2api/") >= 0) return;
       frame.src = EMBED_URLS.chat2api;
     }, 1200);
-    $("btn-attach")?.addEventListener("click", () => fileInput?.click());
-
     $("btn-send")?.addEventListener("click", () => {
       if (state.running) cancelRun();
       else dispatchRun();
     });
     $("btn-new-chat")?.addEventListener("click", () => startNewChat());
     const closeSettingsMenu = bindSettingsMenu();
+    closeSettingsMenuRef = closeSettingsMenu;
     $("btn-chat2api")?.addEventListener("click", () => {
       closeSettingsMenu?.();
       openEmbeddedPanel("chat2api");
@@ -2442,6 +2476,8 @@
         else dispatchRun();
       }
     });
+
+    bindComposerFocus();
 
     $("btn-manage-sessions")?.addEventListener("click", () => setSelectMode(true));
     $("btn-manage-done")?.addEventListener("click", () => setSelectMode(false));
@@ -2844,26 +2880,27 @@
 
     await bootstrapStorage();
     loadWorkspaceFromHost().catch(() => {});
-    ensureSlashCatalog().catch(() => {});
     post("nativeReady", {});
-    post("refreshLoginState", {});
     flushPendingNativeMessages();
 
-    const pollLogin = () => post("refreshLoginState", {});
-    setInterval(pollLogin, 3000);
-    [400, 1200, 2500].forEach((ms) => setTimeout(pollLogin, ms));
+    let loginPollBusy = false;
+    const pollLogin = () => {
+      if (loginPollBusy || state.authResolved) return;
+      loginPollBusy = true;
+      post("refreshLoginState", {});
+      setTimeout(() => {
+        loginPollBusy = false;
+      }, 2500);
+    };
+    loginPollTimer = setInterval(pollLogin, 30000);
+    [600, 1800].forEach((ms) => setTimeout(pollLogin, ms));
 
     setTimeout(() => {
-      if (!state.authResolved) {
-        pollLogin();
-        setTimeout(() => {
-          if (!state.authResolved) setLoggedIn(false);
-        }, 2500);
-      }
-    }, 1200);
+      if (!state.authResolved) setLoggedIn(false);
+    }, 3200);
 
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") pollLogin();
+      if (document.visibilityState === "visible" && !state.authResolved) pollLogin();
     });
   }
 

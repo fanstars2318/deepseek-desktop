@@ -11,7 +11,7 @@ public sealed class HarnessOrchestratorVerifyTests
     {
         var chat = new VerifyFakeChat();
         var mcp = new McpHub();
-        var approval = new ApprovalGate(new AppConfig { AgentApprovalMode = "never" }, (_, _) => Task.FromResult(true));
+        var approval = HarnessTestPermission.AllowAll();
         var orchestrator = new HarnessOrchestrator(chat, mcp, approval);
 
         var playbookDir = Path.Combine(Path.GetTempPath(), "dsd-pb-" + Guid.NewGuid().ToString("N"));
@@ -42,6 +42,7 @@ public sealed class HarnessOrchestratorVerifyTests
                 MaxAgentSteps = 5,
                 WebUserToken = "tok",
                 AgentWorkspaceRoot = workspace,
+                AgentAutoIntentRouting = false,
             },
             Prompt = "完成任务",
             Strategy = AgentStrategies.Execute,
@@ -74,7 +75,8 @@ public sealed class HarnessOrchestratorVerifyTests
             bool allowToolCalls,
             CancellationToken ct,
             string? webUserToken = null,
-            string? webChatSessionId = null)
+            string? webChatSessionId = null,
+            AgentChatOptions? options = null)
         {
             CompleteCalls++;
             if (CompleteCalls == 1)
@@ -102,7 +104,8 @@ public sealed class HarnessOrchestratorVerifyTests
             bool allowToolCalls,
             CancellationToken ct,
             string? webUserToken = null,
-            string? webChatSessionId = null)
+            string? webChatSessionId = null,
+            AgentChatOptions? options = null)
         {
             yield return new WebChatStreamDone(await CompleteAsync(
                 messages, model, thinking, search, refFileIds, allowToolCalls, ct, webUserToken, webChatSessionId));

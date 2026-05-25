@@ -53,7 +53,7 @@ public sealed class HarnessSandboxCoordinatorTests
 
         var executor = new HarnessToolExecutor(
             new McpHub(),
-            new ApprovalGate(config, (_, _) => Task.FromResult(true)),
+            HarnessTestPermission.AllowAll(config),
             new HarnessTrace());
 
         var json = """{"path":"probe.txt"}""";

@@ -8,56 +8,396 @@
   <link rel="stylesheet" href="settings-embed.css" />
 </head>
 <body>
-  <div class="se-page">
-    <h1 class="se-title">DeepSeek 设置</h1>
-    <p class="se-subtitle">DeepSeek Desktop · DSD Harness · MCP</p>
-    <h2 class="se-section">服务状态</h2>
-    <section class="se-card">
-      <div class="se-grid">
-        <div class="se-field"><label>网页会话</label><div id="web-token-status" class="se-status-bad">检测中…</div></div>
-        <div class="se-field"><label>Agent 引擎</label><div id="engine-status">检测中…</div></div>
-      </div>
-      <p class="se-hint" id="service-summary">对话桥接与进程内 Harness 在后台运行。</p>
-    </section>
-    <h2 class="se-section">Agent 行为</h2>
-    <section class="se-card">
-      <div class="se-grid">
-        <div class="se-field"><label for="max-steps">最大 Agent 步数</label><input id="max-steps" type="number" min="1" max="100" /></div>
-        <div class="se-field"><label for="max-sub-steps">子 Agent 最大步数</label><input id="max-sub-steps" type="number" min="1" max="50" /></div>
-        <div class="se-field"><label for="strategy">默认 Harness 工作流</label><select id="strategy"><option value="execute">Execute（多步执行）</option><option value="blueprint">Blueprint（探索→蓝图）</option></select></div>
-      </div>
-    </section>
-    <h2 class="se-section">DSD Harness</h2>
-    <section class="se-card">
-      <p class="se-hint" id="harness-info"></p>
-      <div class="se-row">
-        <button type="button" class="se-btn" id="btn-open-home">打开 ~/.deepseek</button>
-        <button type="button" class="se-btn" id="btn-doctor">运行 doctor</button>
-        <button type="button" class="se-btn" id="btn-docs">Harness 说明</button>
-      </div>
-      <div class="se-field"><label for="workspace">工作区根目录（留空 = 用户主目录）</label><input id="workspace" type="text" spellcheck="false" /></div>
-      <p class="se-hint">Shell 命令在本地工作区沙盒中执行（路径隔离 + 可选懒加载）。</p>
-      <div class="se-grid">
-        <div class="se-field"><label for="approval">工具审批</label><select id="approval"><option value="smart">智能（只读自动）</option><option value="readonly">只读自动</option><option value="always">全部需确认</option><option value="never">从不确认（不安全）</option></select></div>
-        <div class="se-field"><label>&nbsp;</label><label><input type="checkbox" id="allow-shell" /> 允许 Shell 命令</label></div>
-      </div>
-      <label style="display:block;margin-top:12px;font-size:13px;"><input type="checkbox" id="sandbox-lazy" /> 沙盒懒加载（首次 run_shell 时再初始化）</label>
-      <label style="display:block;margin-top:8px;font-size:13px;"><input type="checkbox" id="adaptive-output" /> 网页对话输出截断时自动续写</label>
-    </section>
-    <div class="se-mcp-head">
-      <h2 class="se-section" style="margin:0;">MCP 服务器</h2>
-      <button type="button" class="se-btn se-btn-accent" id="btn-connect-all">连接全部已启用</button>
-    </div>
-    <p class="se-hint" style="margin-top:0;">配置文件：<span id="config-path"></span>
-      <button type="button" class="se-btn" id="btn-copy-config" style="margin-left:8px;">复制</button>
-      <button type="button" class="se-btn" id="btn-open-config">打开</button></p>
-    <section class="se-card" id="mcp-list"></section>
-    <button type="button" class="se-add-mcp" id="btn-add-mcp">+ 添加 MCP 服务器</button>
+  <div class="se-shell">
+    <header class="se-header">
+      <h1 class="se-title">设置</h1>
+      <p class="se-subtitle">Agent · 多智能体 · 记忆 · MCP</p>
+    </header>
+
+    <nav class="se-tabs" role="tablist" aria-label="设置分类">
+      <button type="button" class="se-tab is-active" role="tab" aria-selected="true" data-tab="overview">概览</button>
+      <button type="button" class="se-tab" role="tab" aria-selected="false" data-tab="agent">Agent</button>
+      <button type="button" class="se-tab" role="tab" aria-selected="false" data-tab="multi">多智能体</button>
+      <button type="button" class="se-tab" role="tab" aria-selected="false" data-tab="memory">记忆</button>
+      <button type="button" class="se-tab" role="tab" aria-selected="false" data-tab="mcp">MCP</button>
+      <button type="button" class="se-tab" role="tab" aria-selected="false" data-tab="advanced">高级</button>
+    </nav>
+
+    <main class="se-main">
+      <!-- 概览 -->
+      <section class="se-panel is-active" data-panel="overview" role="tabpanel">
+        <div class="se-stat-grid">
+          <div class="se-stat">
+            <span class="se-stat-label">网页会话</span>
+            <span id="web-token-status" class="se-stat-value se-status-bad">检测中…</span>
+          </div>
+          <div class="se-stat">
+            <span class="se-stat-label">Agent 引擎</span>
+            <span id="engine-status" class="se-stat-value">检测中…</span>
+          </div>
+        </div>
+        <p class="se-lead" id="service-summary">对话桥接与进程内 Harness 在后台运行。</p>
+        <div class="se-feature-grid" id="feature-pills" aria-label="已启用能力"></div>
+        <div class="se-quick">
+          <button type="button" class="se-btn" id="btn-open-home">打开 ~/.deepseek</button>
+          <button type="button" class="se-btn" id="btn-doctor">运行 doctor</button>
+          <button type="button" class="se-btn" id="btn-docs">说明文档</button>
+        </div>
+        <p class="se-hint" id="harness-info"></p>
+      </section>
+
+      <!-- Agent -->
+      <section class="se-panel" data-panel="agent" role="tabpanel" hidden>
+        <div class="se-card">
+          <h2 class="se-card-title">工作流与步数</h2>
+          <div class="se-grid">
+            <div class="se-field">
+              <label for="strategy">默认工作流</label>
+              <select id="strategy">
+                <option value="execute">Execute · 直接执行</option>
+                <option value="blueprint">Blueprint · 探索后出方案</option>
+                <option value="team">Team · 梦之队 SOP</option>
+                <option value="parallel-explore">Parallel Explore · 并行调研</option>
+                <option value="debate">Debate · 双 Agent 辩论</option>
+              </select>
+            </div>
+            <div class="se-field">
+              <label for="max-steps">最大 Agent 步数</label>
+              <input id="max-steps" type="number" min="1" max="100" />
+            </div>
+            <div class="se-field">
+              <label for="max-sub-steps">子 Agent 最大步数</label>
+              <input id="max-sub-steps" type="number" min="1" max="50" />
+            </div>
+          </div>
+        </div>
+
+        <div class="se-card">
+          <h2 class="se-card-title">工作区与安全</h2>
+          <div class="se-field">
+            <label for="workspace">工作区根目录</label>
+            <input id="workspace" type="text" spellcheck="false" placeholder="留空则使用用户主目录" />
+          </div>
+          <div class="se-grid se-grid-tight">
+            <div class="se-field">
+              <label for="approval">工具审批</label>
+              <select id="approval">
+                <option value="smart">智能（只读自动）</option>
+                <option value="readonly">只读自动</option>
+                <option value="always">全部需确认</option>
+                <option value="never">从不确认</option>
+              </select>
+            </div>
+          </div>
+          <div class="se-toggle-list">
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">允许 Shell 命令</span>
+                <span class="se-toggle-desc">在工作区沙盒内执行 cmd</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="allow-shell" /><span class="se-switch-ui"></span></label>
+            </div>
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">沙盒懒加载</span>
+                <span class="se-toggle-desc">首次 run_shell 时再初始化</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="sandbox-lazy" /><span class="se-switch-ui"></span></label>
+            </div>
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">输出截断自动续写</span>
+                <span class="se-toggle-desc">网页对话被截断时继续生成</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="adaptive-output" /><span class="se-switch-ui"></span></label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 多智能体 -->
+      <section class="se-panel" data-panel="multi" role="tabpanel" hidden>
+        <div class="se-card se-card-highlight">
+          <h2 class="se-card-title">智能意图（推荐开启）</h2>
+          <p class="se-card-desc">用户只需描述任务，无需手动指定 /skill 或工具名。</p>
+          <div class="se-toggle-list">
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">自动分析并匹配 Skill / 工具</span>
+                <span class="se-toggle-desc">Run 前扫描 Skill 与 MCP，生成执行计划</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="auto-intent-routing" checked /><span class="se-switch-ui"></span></label>
+            </div>
+            <div class="se-toggle-row se-toggle-sub" id="row-intent-llm">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">模型生成意图规划</span>
+                <span class="se-toggle-desc">默认关闭以省 Token；复杂任务可手动开启</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="intent-llm-planner" /><span class="se-switch-ui"></span></label>
+            </div>
+            <div class="se-toggle-row se-toggle-sub" id="row-intent-cache">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">同会话复用意图规划</span>
+                <span class="se-toggle-desc">后续轮次跳过 LLM 规划调用</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="intent-cache" checked /><span class="se-switch-ui"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="se-card se-card-highlight">
+          <h2 class="se-card-title">Token 优化</h2>
+          <p class="se-card-desc">减少系统提示与工具 schema 体积，在保持任务能力的前提下降低消耗。</p>
+          <div class="se-toggle-list">
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">精简系统提示</span>
+                <span class="se-toggle-desc">有意图规划时跳过 MCP 长目录（推荐）</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="prompt-minimal" checked /><span class="se-switch-ui"></span></label>
+            </div>
+          </div>
+          <div class="se-grid se-grid-3">
+            <div class="se-field">
+              <label for="mcp-tools-max">OpenAI MCP 工具上限</label>
+              <input id="mcp-tools-max" type="number" min="4" max="32" />
+            </div>
+            <div class="se-field">
+              <label for="mcp-catalog-lines">MCP 目录行数</label>
+              <input id="mcp-catalog-lines" type="number" min="8" max="64" />
+            </div>
+            <div class="se-field">
+              <label for="context-compact-k">上下文压缩 (K tokens)</label>
+              <input id="context-compact-k" type="number" min="0" max="256" />
+            </div>
+          </div>
+          <div class="se-grid se-grid-3">
+            <div class="se-field">
+              <label for="tool-output-max">工具输出内联上限</label>
+              <input id="tool-output-max" type="number" min="500" max="20000" />
+            </div>
+            <div class="se-field">
+              <label for="skill-max-chars">Skill 注入字符</label>
+              <input id="skill-max-chars" type="number" min="800" max="20000" />
+            </div>
+            <div class="se-field">
+              <label for="workspace-snapshot-max">工作区快照条目</label>
+              <input id="workspace-snapshot-max" type="number" min="10" max="120" />
+            </div>
+          </div>
+        </div>
+
+        <div class="se-card">
+          <h2 class="se-card-title">协作模式</h2>
+          <div class="se-toggle-list">
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">子 Agent</span>
+                <span class="se-toggle-desc">delegate_agent 委派专长子任务</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="enable-sub-agents" checked /><span class="se-switch-ui"></span></label>
+            </div>
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">Team 梦之队</span>
+                <span class="se-toggle-desc">PM → 架构 → 工程 → 评审</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="enable-team" checked /><span class="se-switch-ui"></span></label>
+            </div>
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">并行 Explore 扇出</span>
+                <span class="se-toggle-desc">多路只读调研后汇总</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="enable-parallel-explore" checked /><span class="se-switch-ui"></span></label>
+            </div>
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">动态选讲者</span>
+                <span class="se-toggle-desc">并行 Explore 后由模型选择下一子 Agent</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="enable-dynamic-group" /><span class="se-switch-ui"></span></label>
+            </div>
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">CAMEL 辩论</span>
+                <span class="se-toggle-desc">Advocate ↔ Critic 多轮辩论</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="enable-debate" checked /><span class="se-switch-ui"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="se-card">
+          <h2 class="se-card-title">并发与轮数</h2>
+          <div class="se-grid se-grid-3">
+            <div class="se-field">
+              <label for="max-concurrent-sub">并行子 Agent 上限</label>
+              <input id="max-concurrent-sub" type="number" min="1" max="10" />
+            </div>
+            <div class="se-field">
+              <label for="parallel-fan-out">Explore 扇出数</label>
+              <input id="parallel-fan-out" type="number" min="1" max="10" />
+            </div>
+            <div class="se-field">
+              <label for="debate-rounds">辩论轮数</label>
+              <input id="debate-rounds" type="number" min="1" max="8" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 记忆与追踪 -->
+      <section class="se-panel" data-panel="memory" role="tabpanel" hidden>
+        <div class="se-card">
+          <h2 class="se-card-title">Langfuse Cloud</h2>
+          <p class="se-card-desc">Run 结束后将 trace 导出到 Langfuse（与本地 trace.jsonl 并存）。</p>
+          <div class="se-toggle-row">
+            <div class="se-toggle-copy">
+              <span class="se-toggle-title">启用 Langfuse 导出</span>
+            </div>
+            <label class="se-switch"><input type="checkbox" id="langfuse-enabled" /><span class="se-switch-ui"></span></label>
+          </div>
+          <div class="se-field">
+            <label for="langfuse-host">Host</label>
+            <input id="langfuse-host" type="text" spellcheck="false" placeholder="https://cloud.langfuse.com" />
+          </div>
+          <div class="se-field">
+            <label for="langfuse-project">Project</label>
+            <input id="langfuse-project" type="text" spellcheck="false" placeholder="项目 slug（可选）" />
+          </div>
+          <div class="se-grid se-grid-tight">
+            <div class="se-field">
+              <label for="langfuse-public-key">Public Key</label>
+              <input id="langfuse-public-key" type="password" spellcheck="false" autocomplete="off" />
+            </div>
+            <div class="se-field">
+              <label for="langfuse-secret-key">Secret Key</label>
+              <input id="langfuse-secret-key" type="password" spellcheck="false" autocomplete="off" />
+            </div>
+          </div>
+        </div>
+
+        <div class="se-card">
+          <h2 class="se-card-title">Run Trace</h2>
+          <p class="se-card-desc">结构化日志写入 ~/.deepseek/runs/，可在 Agent 中用 /runs 查看。</p>
+          <div class="se-toggle-row">
+            <div class="se-toggle-copy">
+              <span class="se-toggle-title">启用 Trace</span>
+              <span class="se-toggle-desc">trace.jsonl + meta.json</span>
+            </div>
+            <label class="se-switch"><input type="checkbox" id="structured-trace" /><span class="se-switch-ui"></span></label>
+          </div>
+          <div class="se-field se-field-inline">
+            <label for="trace-retention">保留天数</label>
+            <input id="trace-retention" type="number" min="0" max="365" />
+            <span class="se-field-suffix">0 = 不自动清理</span>
+          </div>
+        </div>
+
+        <div class="se-card">
+          <h2 class="se-card-title">语义记忆</h2>
+          <p class="se-card-desc">SQLite + embedding，Run 前 Top-K 注入上下文。</p>
+          <div class="se-toggle-list">
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">启用语义记忆</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="semantic-memory" /><span class="se-switch-ui"></span></label>
+            </div>
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">任务结束自动提取</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="semantic-memory-auto" /><span class="se-switch-ui"></span></label>
+            </div>
+          </div>
+          <div class="se-grid se-grid-tight">
+            <div class="se-field">
+              <label for="semantic-topk">检索 Top-K</label>
+              <input id="semantic-topk" type="number" min="1" max="32" />
+            </div>
+            <div class="se-field">
+              <label for="embedding-model">Embedding 模型</label>
+              <input id="embedding-model" type="text" spellcheck="false" placeholder="留空使用默认" />
+            </div>
+          </div>
+          <div class="se-field se-field-inline">
+            <label for="memory-session-ttl">Session 记忆 TTL</label>
+            <input id="memory-session-ttl" type="number" min="0" max="365" />
+            <span class="se-field-suffix">天 · 0 = 不清理</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- MCP -->
+      <section class="se-panel" data-panel="mcp" role="tabpanel" hidden>
+        <div class="se-panel-head">
+          <p class="se-hint se-hint-flush">配置文件 <code id="config-path" class="se-code"></code></p>
+          <div class="se-quick">
+            <button type="button" class="se-btn se-btn-accent" id="btn-connect-all">连接全部</button>
+            <button type="button" class="se-btn" id="btn-copy-config">复制路径</button>
+            <button type="button" class="se-btn" id="btn-open-config">打开</button>
+          </div>
+        </div>
+        <section class="se-card se-card-flush" id="mcp-list"></section>
+        <button type="button" class="se-add-mcp" id="btn-add-mcp">+ 添加 MCP 服务器</button>
+      </section>
+
+      <!-- 高级 -->
+      <section class="se-panel" data-panel="advanced" role="tabpanel" hidden>
+        <div class="se-card">
+          <h2 class="se-card-title">推理通道</h2>
+          <div class="se-grid">
+            <div class="se-field">
+              <label for="inference-mode">通道</label>
+              <select id="inference-mode"><option value="web">网页桥接</option><option value="api">直连 API</option></select>
+            </div>
+            <div class="se-field">
+              <label for="tool-protocol">工具协议</label>
+              <select id="tool-protocol"><option value="xml">XML</option><option value="openai">OpenAI tools</option></select>
+            </div>
+            <div class="se-field">
+              <label for="reasoning-effort">推理强度</label>
+              <select id="reasoning-effort"><option value="max">max</option><option value="high">high</option></select>
+            </div>
+            <div class="se-field">
+              <label for="thinking-display">思考展示</label>
+              <select id="thinking-display"><option value="normal">normal</option><option value="lite">lite</option><option value="raw">raw</option></select>
+            </div>
+          </div>
+        </div>
+
+        <details class="se-details">
+          <summary>API 与 Vision</summary>
+          <div class="se-details-body">
+            <div class="se-grid">
+              <div class="se-field"><label for="api-base">API Base URL</label><input id="api-base" type="text" spellcheck="false" /></div>
+              <div class="se-field"><label for="api-key">API Key</label><input id="api-key" type="password" spellcheck="false" autocomplete="off" /></div>
+            </div>
+            <div class="se-grid se-grid-tight">
+              <div class="se-field"><label for="vision-model">Vision 模型</label><input id="vision-model" type="text" spellcheck="false" placeholder="gpt-4o-mini" /></div>
+              <div class="se-field"><label for="vision-base">Vision Base</label><input id="vision-base" type="text" spellcheck="false" /></div>
+              <div class="se-field"><label for="vision-key">Vision Key</label><input id="vision-key" type="password" spellcheck="false" autocomplete="off" /></div>
+            </div>
+          </div>
+        </details>
+
+        <div class="se-card">
+          <h2 class="se-card-title">其他</h2>
+          <div class="se-field">
+            <label for="notify-script">任务完成 notify 脚本</label>
+            <input id="notify-script" type="text" spellcheck="false" placeholder="可选" />
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
+
   <footer class="se-footer">
     <button type="button" class="se-btn" id="btn-cancel">取消</button>
     <button type="button" class="se-btn se-btn-primary" id="btn-save">保存</button>
   </footer>
-  <script src="settings-embed.js?v=6"></script>
+  <script src="settings-embed.js?v=10"></script>
 </body>
 </html>

@@ -27,9 +27,11 @@ public sealed class AgentSessionThink
 
 public sealed class AgentSessionMessage
 {
+    public string Id { get; set; } = "";
     public string Role { get; set; } = "user";
     public string? Text { get; set; }
     public string? Answer { get; set; }
+    public string? CheckpointHash { get; set; }
     public AgentSessionThink? Think { get; set; }
 }
 

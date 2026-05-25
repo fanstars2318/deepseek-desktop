@@ -21,7 +21,8 @@ public sealed class WinUiWebChatBridgeHostAdapter : IAgentWebChat
         bool allowToolCalls,
         CancellationToken ct,
         string? webUserToken = null,
-        string? webChatSessionId = null) =>
+        string? webChatSessionId = null,
+        AgentChatOptions? options = null) =>
         Bridge.WebChatAsync(
             messages, model, thinking, search, refFileIds, allowToolCalls, ct, webUserToken, webChatSessionId);
 
@@ -34,7 +35,8 @@ public sealed class WinUiWebChatBridgeHostAdapter : IAgentWebChat
         bool allowToolCalls,
         CancellationToken ct,
         string? webUserToken = null,
-        string? webChatSessionId = null) =>
+        string? webChatSessionId = null,
+        AgentChatOptions? options = null) =>
         Bridge.WebChatStreamAsync(
             messages, model, thinking, search, refFileIds, allowToolCalls, ct, webUserToken, webChatSessionId);
 }

@@ -27,12 +27,28 @@ public partial class DesktopSettingsWindow : System.Windows.Window
         PortBox.Text = config.LocalApiPort.ToString();
         MaxStepsBox.Text = config.MaxAgentSteps.ToString();
         MaxSubStepsBox.Text = config.MaxSubAgentSteps.ToString();
+        EnableSubAgentsCheck.IsChecked = config.EnableSubAgents;
+        EnableTeamWorkflowCheck.IsChecked = config.EnableTeamWorkflow;
+        EnableParallelExploreCheck.IsChecked = config.EnableParallelExplore;
+        EnableDebateWorkflowCheck.IsChecked = config.EnableDebateWorkflow;
+        AgentAutoIntentRoutingCheck.IsChecked = config.AgentAutoIntentRouting;
+        AgentIntentUseLlmPlannerCheck.IsChecked = config.AgentIntentUseLlmPlanner;
+        MaxConcurrentSubAgentsBox.Text = config.MaxConcurrentSubAgents.ToString();
+        ParallelExploreFanOutBox.Text = config.ParallelExploreFanOut.ToString();
+        DebateMaxRoundsBox.Text = config.DebateMaxRounds.ToString();
+        StructuredTraceCheck.IsChecked = config.AgentStructuredTraceEnabled;
+        TraceRetentionBox.Text = config.AgentTraceRetentionDays.ToString();
+        SemanticMemoryCheck.IsChecked = config.AgentSemanticMemoryEnabled;
+        SemanticMemoryAutoCheck.IsChecked = config.AgentSemanticMemoryAutoExtract;
+        SemanticTopKBox.Text = config.AgentSemanticMemoryTopK.ToString();
+        EmbeddingModelBox.Text = config.AgentEmbeddingModel ?? "";
         AgentStrategyCombo.Items.Clear();
-        AgentStrategyCombo.Items.Add("Execute（多步执行）");
-        AgentStrategyCombo.Items.Add("Blueprint（探索→蓝图）");
-        AgentStrategyCombo.SelectedIndex = HarnessStrategyResolver.IsBlueprintWorkflow(config.DefaultAgentStrategy)
-            ? 1
-            : 0;
+        AgentStrategyCombo.Items.Add(new ComboBoxItem { Content = "Execute · 直接执行", Tag = AgentStrategies.Execute });
+        AgentStrategyCombo.Items.Add(new ComboBoxItem { Content = "Blueprint · 探索后出方案", Tag = AgentStrategies.Blueprint });
+        AgentStrategyCombo.Items.Add(new ComboBoxItem { Content = "Team · 梦之队", Tag = AgentStrategies.Team });
+        AgentStrategyCombo.Items.Add(new ComboBoxItem { Content = "Parallel Explore", Tag = AgentStrategies.ParallelExplore });
+        AgentStrategyCombo.Items.Add(new ComboBoxItem { Content = "Debate · 辩论", Tag = AgentStrategies.Debate });
+        SelectStrategyCombo(config.DefaultAgentStrategy);
         LocalApiUrlText.Text = $"http://127.0.0.1:{config.LocalApiPort}/v1";
         ConfigPathText.Text = ConfigStore.ConfigFilePath;
         WebTokenStatus.Text = string.IsNullOrWhiteSpace(config.WebUserToken) ? "未登录" : "已登录";
@@ -367,9 +383,19 @@ public partial class DesktopSettingsWindow : System.Windows.Window
             Config.MaxAgentSteps = Math.Clamp(steps, 1, 100);
         if (int.TryParse(MaxSubStepsBox.Text, out var subSteps))
             Config.MaxSubAgentSteps = Math.Clamp(subSteps, 1, 50);
-        Config.DefaultAgentStrategy = AgentStrategyCombo.SelectedIndex == 1
-            ? AgentStrategies.Blueprint
-            : AgentStrategies.Execute;
+        if (int.TryParse(MaxConcurrentSubAgentsBox.Text, out var maxConcurrent))
+            Config.MaxConcurrentSubAgents = Math.Clamp(maxConcurrent, 1, 10);
+        if (int.TryParse(ParallelExploreFanOutBox.Text, out var fanOut))
+            Config.ParallelExploreFanOut = Math.Clamp(fanOut, 1, Config.MaxConcurrentSubAgents);
+        if (int.TryParse(DebateMaxRoundsBox.Text, out var debateRounds))
+            Config.DebateMaxRounds = Math.Clamp(debateRounds, 1, 8);
+        Config.EnableSubAgents = EnableSubAgentsCheck.IsChecked == true;
+        Config.EnableTeamWorkflow = EnableTeamWorkflowCheck.IsChecked == true;
+        Config.EnableParallelExplore = EnableParallelExploreCheck.IsChecked == true;
+        Config.EnableDebateWorkflow = EnableDebateWorkflowCheck.IsChecked == true;
+        Config.AgentAutoIntentRouting = AgentAutoIntentRoutingCheck.IsChecked == true;
+        Config.AgentIntentUseLlmPlanner = AgentIntentUseLlmPlannerCheck.IsChecked == true;
+        Config.DefaultAgentStrategy = GetSelectedStrategy();
         Config.AgentWorkspaceRoot = AgentWorkspaceBox.Text.Trim();
         Config.AgentAllowShell = AgentAllowShellCheck.IsChecked == true;
         Config.EnableAdaptiveOutputEscalation = AdaptiveOutputCheck.IsChecked == true;
@@ -381,6 +407,14 @@ public partial class DesktopSettingsWindow : System.Windows.Window
             _ => "smart"
         };
         Config.AgentAutoApproveReadOnly = Config.AgentApprovalMode is "smart" or "readonly";
+        if (int.TryParse(TraceRetentionBox.Text, out var traceDays))
+            Config.AgentTraceRetentionDays = Math.Max(0, traceDays);
+        Config.AgentStructuredTraceEnabled = StructuredTraceCheck.IsChecked == true;
+        Config.AgentSemanticMemoryEnabled = SemanticMemoryCheck.IsChecked == true;
+        Config.AgentSemanticMemoryAutoExtract = SemanticMemoryAutoCheck.IsChecked == true;
+        if (int.TryParse(SemanticTopKBox.Text, out var topK))
+            Config.AgentSemanticMemoryTopK = Math.Clamp(topK, 1, 32);
+        Config.AgentEmbeddingModel = EmbeddingModelBox.Text.Trim();
         Config.McpServers = _mcpItems.ToList();
         AgentDesktopConfigSync.Apply(Config);
         ConfigStore.Save(Config);
@@ -427,5 +461,28 @@ public partial class DesktopSettingsWindow : System.Windows.Window
     {
         if (string.IsNullOrEmpty(text)) return "—";
         return text.Length <= max ? text : text[..max] + "…";
+    }
+
+    private void SelectStrategyCombo(string? strategy)
+    {
+        var norm = HarnessStrategyResolver.Normalize(strategy);
+        for (var i = 0; i < AgentStrategyCombo.Items.Count; i++)
+        {
+            if (AgentStrategyCombo.Items[i] is ComboBoxItem item
+                && string.Equals(item.Tag?.ToString(), norm, StringComparison.OrdinalIgnoreCase))
+            {
+                AgentStrategyCombo.SelectedIndex = i;
+                return;
+            }
+        }
+
+        AgentStrategyCombo.SelectedIndex = 0;
+    }
+
+    private string GetSelectedStrategy()
+    {
+        if (AgentStrategyCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+            return tag;
+        return AgentStrategies.Execute;
     }
 }

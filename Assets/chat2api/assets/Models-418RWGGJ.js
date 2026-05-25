@@ -1062,13 +1062,6 @@ const P0_TOOL_CLIENT_ADAPTERS = [
     smokeTestKind: "cherry-mcp-weather"
   }
 ];
-const P0_TOOL_PROVIDER_SUPPORT = [
-  { providerId: "deepseek", label: "DEEPSEEK", managed: true, protocolId: "managed_xml", status: "supported" },
-  { providerId: "kimi", label: "KIMI", managed: true, protocolId: "managed_xml", status: "supported" },
-  { providerId: "glm", label: "GLM", managed: true, protocolId: "managed_xml", status: "supported" },
-  { providerId: "qwen", label: "QWEN", managed: true, protocolId: "managed_xml", status: "supported" },
-  { providerId: "mimo", label: "MIMO", managed: true, protocolId: "managed_xml", status: "supported" }
-];
 function mergeToolCallingConfig(config, updates) {
   return {
     ...config,
@@ -1159,13 +1152,6 @@ function ToolCallingPanel() {
               }
             )
           ] })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "space-y-2", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Label, { children: t("toolCalling.providerMatrix") }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "grid gap-2 md:grid-cols-3 lg:grid-cols-5", children: P0_TOOL_PROVIDER_SUPPORT.map((provider) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "rounded-md border p-3", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between gap-2", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-sm font-medium", children: provider.label }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Badge, { variant: "secondary", children: t("toolCalling.supported") })
-          ] }) }, provider.providerId)) })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex items-center justify-between gap-3 rounded-md border p-3", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [

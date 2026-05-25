@@ -57,6 +57,17 @@ public sealed class ConfigStoreTests : IDisposable
     }
 
     [Fact]
+    public void Load_uses_cache_until_file_changes()
+    {
+        ConfigStore.Save(new AppConfig { Model = "cached-model" });
+        var first = ConfigStore.Load();
+        File.WriteAllText(ConfigStore.ConfigFilePath, """{"model":"disk-model"}""");
+        var afterExternalWrite = ConfigStore.Load();
+        Assert.Equal("cached-model", first.Model);
+        Assert.Equal("disk-model", afterExternalWrite.Model);
+    }
+
+    [Fact]
     public void Save_is_thread_safe_under_concurrent_writes()
     {
         var errors = 0;

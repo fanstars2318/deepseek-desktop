@@ -6,7 +6,11 @@ using System.Windows;
 using DeepSeekBrowser.Models;
 using DeepSeekBrowser.Services;
 using DeepSeekBrowser.Services.Harness;
+using DeepSeekBrowser.Services.Harness.Graph;
 using DeepSeekBrowser.Services.Harness.Interop;
+using DeepSeekBrowser.Services.Harness.Memory;
+using DeepSeekBrowser.Services.Harness.Observability;
+using DeepSeekBrowser.Services.Harness.Sandbox;
 using DeepSeekBrowser.Views;
 
 namespace DeepSeekBrowser.Services;
@@ -14,7 +18,9 @@ namespace DeepSeekBrowser.Services;
 public sealed class DesktopAgentHost : IAsyncDisposable
 {
     private readonly McpHub _mcpHub = new();
-    private readonly DesktopWebHost _pages;
+    private readonly IDdWebPages _pages;
+
+    private WebInjectService ChatWebInject => (WebInjectService)_pages.Chat;
     private readonly LocalOpenAiServer _localApi;
     private AppConfig _config = new();
     private CancellationTokenSource? _runCts;
@@ -28,6 +34,8 @@ public sealed class DesktopAgentHost : IAsyncDisposable
     private string? _lastAgentWebChatSessionId;
     private AgentAutomationHost? _automationHost;
     private AgentAutomationSupport? _automationSupport;
+    private TaskCompletionSource<string>? _userQuestionTcs;
+    private TaskCompletionSource<bool>? _permissionTcs;
 
     public Func<string, Task>? NavigateToUrl { get; set; }
 
@@ -66,7 +74,7 @@ public sealed class DesktopAgentHost : IAsyncDisposable
     private string ResolveChatNavigationUrl() =>
         AppNavigation.ChatSessionUrl(_lastAgentWebChatSessionId);
 
-    public DesktopAgentHost(DesktopWebHost pages, LocalOpenAiServer localApi)
+    public DesktopAgentHost(IDdWebPages pages, LocalOpenAiServer localApi)
     {
         _pages = pages;
         _localApi = localApi;
@@ -99,16 +107,28 @@ public sealed class DesktopAgentHost : IAsyncDisposable
 
     private DeepSeekHarnessRunner GetHarnessRunner() =>
         _harnessRunner ??= new DeepSeekHarnessRunner(
-            new DesktopWebChatAdapter(_pages),
+            () => AgentChatClientFactory.Create(_config, new DesktopWebChatAdapter(_pages)),
             _mcpHub,
-            RequestToolApprovalAsync);
+            RequestToolApprovalAsync,
+            new DesktopUserQuestionHandler(this),
+            RequestScopeApprovalAsync);
+
+    private sealed class DesktopUserQuestionHandler : IUserQuestionHandler
+    {
+        private readonly DesktopAgentHost _host;
+
+        public DesktopUserQuestionHandler(DesktopAgentHost host) => _host = host;
+
+        public Task<string> AskAsync(UserQuestionRequest request, CancellationToken ct) =>
+            _host.RequestUserQuestionAsync(request, ct);
+    }
 
     /// <summary>供 DEEPSEEK_DESKTOP_VERIFY_WORKMODE=1 自检切换链路。</summary>
     public Task VerifyWorkModeSwitchAsync(string mode) => ApplyWorkModeAsync(default, mode);
 
     public void Start()
     {
-        _config = ConfigStore.Load();
+        ReloadConfig();
         Chat2ApiCompat.EnsureDefaultMappings(_config);
         _localApi.UpdateConfig(_config);
         if (_config.EnableExternalOpenAiApi)
@@ -120,7 +140,6 @@ public sealed class DesktopAgentHost : IAsyncDisposable
 
     private void StartAutomations()
     {
-        ReloadConfig();
         _automationHost?.Dispose();
         _automationHost = new AgentAutomationHost(_config, ExecuteAutomationAsync, OnAutomationRunUpdated);
         _automationSupport = new AgentAutomationSupport(
@@ -136,7 +155,7 @@ public sealed class DesktopAgentHost : IAsyncDisposable
     public Task EnsureEmbeddedStackLinkedAsync(CancellationToken ct = default)
     {
         ReloadConfig();
-        return EmbeddedStackCoordinator.EnsureLinkedAsync(_config, _localApi, _pages.Chat, ct);
+        return EmbeddedStackCoordinator.EnsureLinkedAsync(_config, _localApi, ChatWebInject, ct);
     }
 
     public async Task WarmChat2ApiBridgeAsync()
@@ -190,6 +209,9 @@ public sealed class DesktopAgentHost : IAsyncDisposable
             agentStrategy = _config.DefaultAgentStrategy,
             agentDeepThinking = _config.AgentDeepThinking,
             agentWebSearch = _config.AgentWebSearch,
+            agentThinkingDisplayMode = _config.AgentThinkingDisplayMode ?? AgentThinkingDisplayModes.Normal,
+            agentInferenceMode = _config.AgentInferenceMode ?? AgentInferenceModes.Web,
+            agentSessionPlan = _config.AgentSessionPlanMarkdown ?? "",
             hint = loggedIn
                 ? "网页会话已同步，可使用 Agent 与深度思考"
                 : "请先在普通对话登录 DeepSeek 网页",
@@ -454,7 +476,360 @@ public sealed class DesktopAgentHost : IAsyncDisposable
             case "agentHarnessReload":
                 await HandleAgentHarnessReloadAsync(msg);
                 break;
+            case "agentAskUserResponse":
+                HandleAgentAskUserResponse(msg);
+                break;
+            case "agentMcpStatus":
+                await HandleAgentMcpStatusAsync(msg);
+                break;
+            case "agentInitAgents":
+                await HandleAgentInitAgentsAsync(msg);
+                break;
+            case "agentUndoFile":
+                await HandleAgentUndoFileAsync(msg);
+                break;
+            case "agentUndoList":
+                await HandleAgentUndoListAsync(msg);
+                break;
+            case "agentUndoRestore":
+                await HandleAgentUndoRestoreAsync(msg);
+                break;
+            case "agentPermissionResponse":
+                HandleAgentPermissionResponse(msg);
+                break;
+            case "agentWorkspaceFiles":
+                await HandleAgentWorkspaceFilesAsync(msg);
+                break;
+            case "agentWorkspaceReadSnippet":
+                await HandleAgentWorkspaceReadSnippetAsync(msg);
+                break;
+            case "agentPlanGet":
+                await HandleAgentPlanGetAsync(msg);
+                break;
+            case "agentRunsList":
+                await HandleAgentRunsListAsync(msg);
+                break;
+            case "agentRunLoad":
+                await HandleAgentRunLoadAsync(msg);
+                break;
+            case "agentMemorySearch":
+                await HandleAgentMemorySearchAsync(msg);
+                break;
+            case "agentMemoryForget":
+                await HandleAgentMemoryForgetAsync(msg);
+                break;
+            case "agentMemoryClearSession":
+                await HandleAgentMemoryClearSessionAsync(msg);
+                break;
+            case "agentGraphList":
+                await HandleAgentGraphListAsync(msg);
+                break;
+            case "agentResumeThread":
+                await HandleAgentResumeThreadAsync(msg);
+                break;
+            case "agentSkillsReindex":
+                await HandleAgentSkillsReindexAsync(msg);
+                break;
+            case "agentSkillsSearch":
+                await HandleAgentSkillsSearchAsync(msg);
+                break;
+            case "agentBlocksList":
+                await HandleAgentBlocksListAsync(msg);
+                break;
         }
+    }
+
+    private void HandleAgentAskUserResponse(JsonElement msg)
+    {
+        var answer = msg.TryGetProperty("answer", out var aEl) ? aEl.GetString() ?? "" : "";
+        _userQuestionTcs?.TrySetResult(string.IsNullOrWhiteSpace(answer) ? "继续" : answer);
+        _userQuestionTcs = null;
+    }
+
+    private void HandleAgentPermissionResponse(JsonElement msg)
+    {
+        var allow = msg.TryGetProperty("allow", out var aEl) && aEl.GetBoolean();
+        if (allow && msg.TryGetProperty("rememberScopes", out var rsEl) && rsEl.ValueKind == JsonValueKind.Object)
+        {
+            ReloadConfig();
+            var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrWhiteSpace(_config.AgentPermissionScopesJson))
+            {
+                try
+                {
+                    using var existing = JsonDocument.Parse(_config.AgentPermissionScopesJson);
+                    foreach (var p in existing.RootElement.EnumerateObject())
+                        dict[p.Name] = p.Value.GetString() ?? "allow";
+                }
+                catch { /* ignore */ }
+            }
+
+            foreach (var p in rsEl.EnumerateObject())
+                dict[p.Name] = "allow";
+            _config.AgentPermissionScopesJson = JsonSerializer.Serialize(dict);
+            ConfigStore.Save(_config);
+        }
+
+        _permissionTcs?.TrySetResult(allow);
+        _permissionTcs = null;
+    }
+
+    public Task<bool> RequestScopeApprovalAsync(string toolName, string detail, IReadOnlyList<string> scopes)
+    {
+        if (!PostToWebUi)
+            return RequestToolApprovalAsync(toolName, detail);
+
+        _permissionTcs?.TrySetCanceled();
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _permissionTcs = tcs;
+        _ = _pages.PostToPageAsync(new
+        {
+            type = "agentPermissionRequest",
+            tool = toolName,
+            detail,
+            scopes
+        });
+        return tcs.Task;
+    }
+
+    public Task<string> RequestUserQuestionAsync(UserQuestionRequest request, CancellationToken ct)
+    {
+        _userQuestionTcs?.TrySetCanceled();
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _userQuestionTcs = tcs;
+        if (ct.CanBeCanceled)
+            ct.Register(() => tcs.TrySetCanceled());
+        var payload = new
+        {
+            type = "agentAskUser",
+            question = request.Question,
+            options = request.Options.Select(o => new { label = o.Label, description = o.Description }).ToList()
+        };
+        if (PostToWebUi)
+            _ = _pages.PostToPageAsync(payload);
+        else
+            tcs.TrySetResult(request.Options.FirstOrDefault()?.Label ?? "继续");
+        return tcs.Task;
+    }
+
+    private async Task HandleAgentMcpStatusAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        ReloadConfig();
+        var servers = _config.McpServers.Select(s => new
+        {
+            id = s.Id,
+            name = s.Name,
+            enabled = s.Enabled,
+            connected = s.Enabled && _mcpHub.IsConnected(s.Id),
+            toolCount = s.Enabled ? _mcpHub.GetToolCount(s.Id) : 0
+        }).ToList();
+        await _pages.Agent.PostToPageAsync(new { type = "agentMcpStatus", reqId, ok = true, servers });
+    }
+
+    private async Task HandleAgentInitAgentsAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        var workspace = AgentWorkspace.ResolveRoot(_config);
+        var path = HarnessAgentsMdInit.WriteDefault(workspace);
+        await _pages.Agent.PostToPageAsync(new { type = "agentInitAgents", reqId, ok = true, path });
+    }
+
+    private async Task HandleAgentUndoFileAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        var rel = msg.TryGetProperty("path", out var pEl) ? pEl.GetString() ?? "" : "";
+        var workspace = AgentWorkspace.ResolveRoot(_config);
+        var history = new HarnessFileHistory(workspace);
+        var ok = !string.IsNullOrWhiteSpace(rel) && history.TryRestoreSingleFile(rel);
+        await _pages.Agent.PostToPageAsync(new { type = "agentUndoFile", reqId, ok, path = rel });
+    }
+
+    private async Task HandleAgentUndoListAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        var sessionId = msg.TryGetProperty("sessionId", out var sidEl) ? sidEl.GetString() ?? "" : "";
+        ReloadConfig();
+        var workspace = AgentWorkspace.ResolveRoot(_config);
+        var undo = new HarnessUndoService(workspace, _agentSessions);
+        var targets = string.IsNullOrWhiteSpace(sessionId)
+            ? Array.Empty<HarnessUndoTarget>()
+            : undo.ListTargets(sessionId);
+        await _pages.Agent.PostToPageAsync(new
+        {
+            type = "agentUndoList",
+            reqId,
+            ok = true,
+            targets = targets.Select(t => new
+            {
+                messageId = t.MessageId,
+                preview = t.Preview,
+                canRestoreCode = t.CanRestoreCode,
+                checkpointHash = t.CheckpointHash
+            })
+        });
+    }
+
+    private async Task HandleAgentUndoRestoreAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        var sessionId = msg.TryGetProperty("sessionId", out var sidEl) ? sidEl.GetString() ?? "" : "";
+        var messageId = msg.TryGetProperty("messageId", out var midEl) ? midEl.GetString() ?? "" : "";
+        var includeCode = msg.TryGetProperty("includeCode", out var icEl) && icEl.GetBoolean();
+        ReloadConfig();
+        var workspace = AgentWorkspace.ResolveRoot(_config);
+        var undo = new HarnessUndoService(workspace, _agentSessions);
+        var updated = undo.RestoreConversation(sessionId, messageId, includeCode);
+        await _pages.Agent.PostToPageAsync(new
+        {
+            type = "agentUndoRestore",
+            reqId,
+            ok = updated is not null,
+            session = updated
+        });
+    }
+
+    private void ApplyCheckpointToSession(string sessionId, string checkpointHash)
+    {
+        var session = _agentSessions.Load(sessionId);
+        if (session is null)
+            return;
+        for (var i = session.Messages.Count - 1; i >= 0; i--)
+        {
+            if (!string.Equals(session.Messages[i].Role, "user", StringComparison.OrdinalIgnoreCase))
+                continue;
+            session.Messages[i].CheckpointHash = checkpointHash;
+            if (string.IsNullOrWhiteSpace(session.Messages[i].Id))
+                session.Messages[i].Id = Guid.NewGuid().ToString("N");
+            break;
+        }
+
+        session.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _agentSessions.Save(session);
+    }
+
+    private async Task HandleAgentWorkspaceFilesAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        var query = msg.TryGetProperty("query", out var qEl) ? qEl.GetString() ?? "" : "";
+        var workspace = AgentWorkspace.ResolveRoot(_config);
+        var files = await Task.Run(() => CollectWorkspaceFiles(workspace, query, 60)).ConfigureAwait(true);
+        await _pages.Agent.PostToPageAsync(new { type = "agentWorkspaceFiles", reqId, ok = true, files });
+    }
+
+    private static List<string> CollectWorkspaceFiles(string workspace, string? query, int maxCount)
+    {
+        var files = new List<string>(Math.Min(maxCount, 32));
+        if (!Directory.Exists(workspace) || maxCount <= 0)
+            return files;
+
+        var q = query?.Trim();
+        var queue = new Queue<string>();
+        queue.Enqueue(workspace);
+
+        while (queue.Count > 0 && files.Count < maxCount)
+        {
+            string dir;
+            try
+            {
+                dir = queue.Dequeue();
+            }
+            catch
+            {
+                break;
+            }
+
+            IEnumerable<string> entries;
+            try
+            {
+                entries = Directory.EnumerateFileSystemEntries(dir);
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var entry in entries)
+            {
+                var name = Path.GetFileName(entry);
+                if (string.IsNullOrEmpty(name)) continue;
+
+                if (Directory.Exists(entry))
+                {
+                    if (ShouldSkipWorkspaceDir(name)) continue;
+                    queue.Enqueue(entry);
+                    continue;
+                }
+
+                var rel = Path.GetRelativePath(workspace, entry).Replace('\\', '/');
+                if (ShouldSkipWorkspaceFile(rel)) continue;
+                if (!string.IsNullOrWhiteSpace(q) &&
+                    !rel.Contains(q, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                files.Add(rel);
+                if (files.Count >= maxCount)
+                    break;
+            }
+        }
+
+        files.Sort(StringComparer.OrdinalIgnoreCase);
+        return files;
+    }
+
+    private static bool ShouldSkipWorkspaceDir(string name) =>
+        name is ".git" or "node_modules" or "bin" or "obj" or "dist" or "build" or ".venv" or "__pycache__"
+        or "publish" or ".vs" or ".idea";
+
+    private static bool ShouldSkipWorkspaceFile(string rel)
+    {
+        var parts = rel.Split('/', '\\');
+        foreach (var p in parts)
+        {
+            if (ShouldSkipWorkspaceDir(p))
+                return true;
+        }
+
+        return rel.StartsWith(".git/", StringComparison.Ordinal);
+    }
+
+    private async Task HandleAgentWorkspaceReadSnippetAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        var rel = msg.TryGetProperty("path", out var pEl) ? pEl.GetString() ?? "" : "";
+        try
+        {
+            ReloadConfig();
+            var workspace = AgentWorkspace.ResolveRoot(_config);
+            var paths = new SandboxPathResolver(workspace);
+            using var doc = JsonDocument.Parse(
+                System.Text.Json.JsonSerializer.Serialize(new { file_path = rel, limit = 80 }));
+            var snippet = HarnessReadFileTool.Execute(doc.RootElement, paths).Output;
+            await _pages.Agent.PostToPageAsync(new { type = "agentWorkspaceReadSnippet", reqId, ok = true, snippet });
+        }
+        catch (Exception ex)
+        {
+            await _pages.Agent.PostToPageAsync(new
+            {
+                type = "agentWorkspaceReadSnippet",
+                reqId,
+                ok = false,
+                error = ex.Message
+            });
+        }
+    }
+
+    private async Task HandleAgentPlanGetAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        ReloadConfig();
+        await _pages.Agent.PostToPageAsync(new
+        {
+            type = "agentPlanGet",
+            reqId,
+            ok = true,
+            plan = _config.AgentSessionPlanMarkdown ?? ""
+        });
     }
 
     private async Task HandleAgentHarnessReloadAsync(JsonElement msg)
@@ -484,14 +859,308 @@ public sealed class DesktopAgentHost : IAsyncDisposable
         {
             ReloadConfig();
             var workspace = AgentWorkspace.ResolveRoot(_config);
-            var skills = HarnessSkillRegistry.List(workspace)
-                .Select(s => new { s.Id, s.Name, s.Description, s.Source, s.FilePath })
-                .ToList();
+            var extraRoots = _config.AgentSkillExtraRoots;
+            var skills = await Task.Run(() =>
+                HarnessSkillRegistry.List(workspace, extraRoots)
+                    .Select(s => new { s.Id, s.Name, s.Description, s.Source, s.FilePath })
+                    .ToList()).ConfigureAwait(true);
             await _pages.Agent.PostToPageAsync(new { type = "agentSkills", reqId, ok = true, skills });
         }
         catch (Exception ex)
         {
             await _pages.Agent.PostToPageAsync(new { type = "agentSkills", reqId, ok = false, error = ex.Message });
+        }
+    }
+
+    private async Task HandleAgentRunsListAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        try
+        {
+            ReloadConfig();
+            var workspace = AgentWorkspace.ResolveRoot(_config);
+            var limit = msg.TryGetProperty("limit", out var limEl) && limEl.TryGetInt32(out var lim)
+                ? Math.Clamp(lim, 1, 200)
+                : 50;
+            var runs = HarnessRunTraceStore.ListRuns(workspace, limit)
+                .Select(m => new
+                {
+                    m.RunId,
+                    m.TraceId,
+                    langfuseUrl = HarnessLangfuseExporter.IsConfigured(_config) && !string.IsNullOrWhiteSpace(m.TraceId)
+                        ? HarnessLangfuseExporter.BuildTraceUrl(_config, m.TraceId)
+                        : null,
+                    m.StartedUtc,
+                    m.EndedUtc,
+                    m.DurationMs,
+                    m.PromptPreview,
+                    m.AnswerPreview,
+                    m.PromptTokens,
+                    m.CompletionTokens,
+                    m.TotalTokens,
+                    m.ToolCallCount,
+                    m.Strategy,
+                    m.Phase
+                })
+                .ToList();
+            await _pages.Agent.PostToPageAsync(new { type = "agentRuns", reqId, ok = true, runs });
+        }
+        catch (Exception ex)
+        {
+            await _pages.Agent.PostToPageAsync(new { type = "agentRuns", reqId, ok = false, error = ex.Message });
+        }
+    }
+
+    private async Task HandleAgentRunLoadAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        var runId = msg.TryGetProperty("runId", out var idEl) ? idEl.GetString() : null;
+        try
+        {
+            ReloadConfig();
+            var workspace = AgentWorkspace.ResolveRoot(_config);
+            var maxSpans = msg.TryGetProperty("maxSpans", out var msEl) && msEl.TryGetInt32(out var ms)
+                ? Math.Clamp(ms, 1, 500)
+                : 200;
+            var loaded = HarnessRunTraceStore.LoadRun(workspace, runId ?? "", maxSpans);
+            if (loaded is null)
+            {
+                await _pages.Agent.PostToPageAsync(new { type = "agentRunTrace", reqId, ok = false, error = "run not found" });
+                return;
+            }
+
+            await _pages.Agent.PostToPageAsync(new
+            {
+                type = "agentRunTrace",
+                reqId,
+                ok = true,
+                runId = loaded.RunId,
+                meta = loaded.Meta,
+                spans = loaded.Spans.Select(s => new
+                {
+                    s.SpanId,
+                    s.ParentSpanId,
+                    s.Name,
+                    s.StartUtc,
+                    s.DurationMs,
+                    s.Status,
+                    s.Attributes
+                })
+            });
+        }
+        catch (Exception ex)
+        {
+            await _pages.Agent.PostToPageAsync(new { type = "agentRunTrace", reqId, ok = false, error = ex.Message });
+        }
+    }
+
+    private async Task HandleAgentMemorySearchAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        var query = msg.TryGetProperty("query", out var qEl) ? qEl.GetString() ?? "" : "";
+        try
+        {
+            ReloadConfig();
+            using var store = new HarnessSemanticMemoryStore();
+            var limit = msg.TryGetProperty("limit", out var limEl) && limEl.TryGetInt32(out var lim)
+                ? Math.Clamp(lim, 1, 100)
+                : 20;
+            var hits = store.SearchByTextPrefix(query, limit)
+                .Select(h => new
+                {
+                    h.Id,
+                    h.Scope,
+                    h.Text,
+                    h.MetadataJson,
+                    updatedAtUtc = DateTimeOffset.FromUnixTimeSeconds(h.UpdatedAtUnix).ToString("O")
+                })
+                .ToList();
+            await _pages.Agent.PostToPageAsync(new
+            {
+                type = "agentMemory",
+                reqId,
+                ok = true,
+                query,
+                count = store.Count(),
+                hits
+            });
+        }
+        catch (Exception ex)
+        {
+            await _pages.Agent.PostToPageAsync(new { type = "agentMemory", reqId, ok = false, error = ex.Message });
+        }
+    }
+
+    private async Task HandleAgentMemoryClearSessionAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        try
+        {
+            using var store = new HarnessSemanticMemoryStore();
+            var deleted = store.ClearScopePrefix("session:");
+            await _pages.Agent.PostToPageAsync(new { type = "agentMemoryClearSession", reqId, ok = true, deleted });
+        }
+        catch (Exception ex)
+        {
+            await _pages.Agent.PostToPageAsync(new { type = "agentMemoryClearSession", reqId, ok = false, error = ex.Message });
+        }
+    }
+
+    private async Task HandleAgentMemoryForgetAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        var id = msg.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+        try
+        {
+            using var store = new HarnessSemanticMemoryStore();
+            var ok = !string.IsNullOrWhiteSpace(id) && store.Forget(id!);
+            await _pages.Agent.PostToPageAsync(new { type = "agentMemoryForget", reqId, ok, id });
+        }
+        catch (Exception ex)
+        {
+            await _pages.Agent.PostToPageAsync(new { type = "agentMemoryForget", reqId, ok = false, error = ex.Message });
+        }
+    }
+
+    private async Task HandleAgentGraphListAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        try
+        {
+            ReloadConfig();
+            var workspace = AgentWorkspace.ResolveRoot(_config);
+            var graphs = HarnessGraphRegistry.List(workspace)
+                .Select(g => new { g.Id, g.NodeCount, g.EdgeCount, g.Source, g.FilePath })
+                .ToList();
+            await _pages.Agent.PostToPageAsync(new { type = "agentGraphs", reqId, ok = true, graphs });
+        }
+        catch (Exception ex)
+        {
+            await _pages.Agent.PostToPageAsync(new { type = "agentGraphs", reqId, ok = false, error = ex.Message });
+        }
+    }
+
+    private async Task HandleAgentResumeThreadAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        var threadId = msg.TryGetProperty("threadId", out var tEl) ? tEl.GetString() : null;
+        var task = msg.TryGetProperty("task", out var taskEl) ? taskEl.GetString() ?? "" : "";
+        try
+        {
+            ReloadConfig();
+            var cp = HarnessGraphCheckpoint.Load(threadId ?? "");
+            if (cp is null || string.IsNullOrWhiteSpace(cp.GraphId))
+            {
+                await _pages.Agent.PostToPageAsync(new { type = "agentResumeThread", reqId, ok = false, error = "thread not found" });
+                return;
+            }
+
+            var workspace = AgentWorkspace.ResolveRoot(_config);
+            var runner = GetHarnessRunner();
+            var result = await runner.RunAsync(
+                new HarnessRunRequest
+                {
+                    Config = _config,
+                    Prompt = string.IsNullOrWhiteSpace(task) ? "Resume graph thread" : task,
+                    Strategy = AgentStrategies.GraphStrategy(cp.GraphId),
+                    AgentSessionId = threadId,
+                    ResumeGraphThreadId = threadId
+                },
+                new HarnessRunCallbacks { OnLog = line => _ = _pages.PostToPageAsync(new { type = "agentLog", text = line }) },
+                CancellationToken.None);
+
+            await _pages.Agent.PostToPageAsync(new
+            {
+                type = "agentResumeThread",
+                reqId,
+                ok = true,
+                threadId,
+                answer = result.Answer,
+                runId = result.RunId
+            });
+        }
+        catch (Exception ex)
+        {
+            await _pages.Agent.PostToPageAsync(new { type = "agentResumeThread", reqId, ok = false, error = ex.Message });
+        }
+    }
+
+    private async Task HandleAgentSkillsReindexAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        ReloadConfig();
+        var workspace = AgentWorkspace.ResolveRoot(_config);
+        var extra = _config.AgentSkillExtraRoots;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await HarnessSkillCatalogIndexer.ReindexAsync(
+                    workspace,
+                    extra,
+                    p => _ = _pages.Agent.PostToPageAsync(new
+                    {
+                        type = "agentSkillReindexProgress",
+                        reqId,
+                        scanned = p.Scanned,
+                        indexed = p.Indexed,
+                        skipped = p.Skipped,
+                        done = p.Done
+                    }),
+                    CancellationToken.None);
+                HarnessSkillRegistry.InvalidateCache();
+                await _pages.Agent.PostToPageAsync(new
+                {
+                    type = "agentSkillsReindex",
+                    reqId,
+                    ok = true,
+                    count = result.Count,
+                    skipped = result.Skipped
+                });
+            }
+            catch (Exception ex)
+            {
+                await _pages.Agent.PostToPageAsync(new { type = "agentSkillsReindex", reqId, ok = false, error = ex.Message });
+            }
+        });
+        await _pages.Agent.PostToPageAsync(new { type = "agentSkillsReindex", reqId, ok = true, started = true });
+    }
+
+    private async Task HandleAgentSkillsSearchAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        var query = msg.TryGetProperty("query", out var qEl) ? qEl.GetString() ?? "" : "";
+        try
+        {
+            var limit = msg.TryGetProperty("limit", out var limEl) && limEl.TryGetInt32(out var lim)
+                ? Math.Clamp(lim, 1, 100)
+                : 20;
+            var hits = HarnessSkillCatalogIndexer.Search(query, limit)
+                .Select(h => new { h.Id, h.Name, h.Description, h.Source, h.FilePath, h.Tags })
+                .ToList();
+            await _pages.Agent.PostToPageAsync(new { type = "agentSkillsSearch", reqId, ok = true, query, hits });
+        }
+        catch (Exception ex)
+        {
+            await _pages.Agent.PostToPageAsync(new { type = "agentSkillsSearch", reqId, ok = false, error = ex.Message });
+        }
+    }
+
+    private async Task HandleAgentBlocksListAsync(JsonElement msg)
+    {
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        try
+        {
+            ReloadConfig();
+            var workspace = AgentWorkspace.ResolveRoot(_config);
+            var blocks = HarnessBlockRegistry.List(workspace)
+                .Select(b => new { b.Id, b.Type, b.Description, b.Tool, b.Command, b.SkillId, b.GraphId })
+                .ToList();
+            await _pages.Agent.PostToPageAsync(new { type = "agentBlocks", reqId, ok = true, blocks });
+        }
+        catch (Exception ex)
+        {
+            await _pages.Agent.PostToPageAsync(new { type = "agentBlocks", reqId, ok = false, error = ex.Message });
         }
     }
 
@@ -524,18 +1193,19 @@ public sealed class DesktopAgentHost : IAsyncDisposable
             ReloadConfig();
             AgentDesktopConfigSync.Apply(_config);
             var workspace = AgentWorkspace.ResolveRoot(_config);
-            var playbooks = HarnessPlaybookRegistry.List(workspace)
-                .Select(p => new
-                {
-                    p.Id,
-                    p.Name,
-                    p.Description,
-                    p.Strategy,
-                    p.HasVerify,
-                    p.VerifyStepCount,
-                    p.Source
-                })
-                .ToList();
+            var playbooks = await Task.Run(() =>
+                HarnessPlaybookRegistry.List(workspace)
+                    .Select(p => new
+                    {
+                        p.Id,
+                        p.Name,
+                        p.Description,
+                        p.Strategy,
+                        p.HasVerify,
+                        p.VerifyStepCount,
+                        p.Source
+                    })
+                    .ToList()).ConfigureAwait(true);
             await _pages.Agent.PostToPageAsync(new { type = "agentPlaybooks", reqId, ok = true, playbooks });
         }
         catch (Exception ex)
@@ -727,7 +1397,6 @@ public sealed class DesktopAgentHost : IAsyncDisposable
     private void QueueAgentSurfaceFollowUp(JsonElement msg)
     {
         ConfigStore.Save(_config);
-        _pages.WorkMode.ScheduleBroadcastRetries();
         _ = ApplyTokenFromMessageAsync(msg);
         _ = SyncTokenFromPageAsync();
         _ = PushCachedLoginStateAsync();
@@ -738,7 +1407,6 @@ public sealed class DesktopAgentHost : IAsyncDisposable
     private void QueueChatSurfaceFollowUp(JsonElement msg)
     {
         ConfigStore.Save(_config);
-        _pages.WorkMode.ScheduleBroadcastRetries();
         _ = ApplyTokenFromMessageAsync(msg);
         _ = RefreshLoginStateBackgroundAsync();
     }
@@ -782,7 +1450,7 @@ public sealed class DesktopAgentHost : IAsyncDisposable
             return;
         _config.WebUserToken = normalized;
         ConfigStore.Save(_config);
-        await Chat2ApiStackBootstrap.OnWebLoginAsync(_config, _localApi, _pages.Chat);
+        await Chat2ApiStackBootstrap.OnWebLoginAsync(_config, _localApi, ChatWebInject);
         await NotifyApiInfoAsync();
         await PushLoginStateAsync();
     }
@@ -830,12 +1498,17 @@ public sealed class DesktopAgentHost : IAsyncDisposable
     }
 
     private Chat2ApiIpcBridge GetChat2ApiIpc() =>
-        _chat2ApiIpc ??= new Chat2ApiIpcBridge(_localApi, _pages.Agent, () => _owner, SyncChat2ApiStackAsync);
+        _chat2ApiIpc ??= new Chat2ApiIpcBridge(_localApi, ResolveChat2ApiWebInject(), () => _owner, SyncChat2ApiStackAsync);
+
+    private WebInjectService ResolveChat2ApiWebInject() =>
+        _pages is Dd.DdBridgeWebHost dd
+            ? dd.Chat
+            : (WebInjectService)_pages.Agent;
 
     private async Task SyncChat2ApiStackAsync(AppConfig config, CancellationToken ct)
     {
         AgentDesktopConfigSync.Apply(config);
-        await EmbeddedStackCoordinator.EnsureLinkedAsync(config, _localApi, _pages.Chat, ct)
+        await EmbeddedStackCoordinator.EnsureLinkedAsync(config, _localApi, ChatWebInject, ct)
             .ConfigureAwait(false);
         Chat2ApiHealth? health = null;
         try
@@ -1004,9 +1677,10 @@ public sealed class DesktopAgentHost : IAsyncDisposable
             if (PostToWebUi)
                 await _pages.PostToPageAsync(new { type = "agentStarted", task });
 
-            if (string.IsNullOrWhiteSpace(_config.WebUserToken))
+            if (string.IsNullOrWhiteSpace(_config.WebUserToken)
+                && !AgentChatClientFactory.UsesDirectApi(_config))
             {
-                Log("请先在网页登录 DeepSeek。");
+                Log("请先在网页登录 DeepSeek，或在设置中启用 API 模式并配置 Key。");
                 return;
             }
 
@@ -1087,7 +1761,8 @@ public sealed class DesktopAgentHost : IAsyncDisposable
                     ExistingHarnessState = harnessState,
                     RefFileIds = refFileIds ?? Array.Empty<string>(),
                     PlaybookId = playbookId,
-                    SkillId = skillId
+                    SkillId = skillId,
+                    AgentSessionId = sessionId
                 },
                 new HarnessRunCallbacks
                 {
@@ -1095,6 +1770,11 @@ public sealed class DesktopAgentHost : IAsyncDisposable
                     OnThinking = PostThinking,
                     OnAnswerDelta = PostAnswerDelta,
                     OnActivity = PostActivity,
+                    OnShellOutput = chunk =>
+                    {
+                        if (PostToWebUi)
+                            _ = _pages.PostToPageAsync(new { type = "agentShellOutput", text = chunk });
+                    },
                     OnPhaseChanged = phase =>
                     {
                         if (!PostToWebUi) return;
@@ -1112,6 +1792,21 @@ public sealed class DesktopAgentHost : IAsyncDisposable
             webChatSessionId = harnessResult.WebChatSessionId;
             RememberWebChatSession(webChatSessionId);
             _ = _pages.SyncChatSessionAsync(webChatSessionId);
+
+            if (!string.IsNullOrWhiteSpace(sessionId)
+                && !string.IsNullOrWhiteSpace(harnessResult.LastCheckpointHash))
+            {
+                ApplyCheckpointToSession(sessionId, harnessResult.LastCheckpointHash);
+                if (PostToWebUi)
+                {
+                    await _pages.PostToPageAsync(new
+                    {
+                        type = "agentCheckpoint",
+                        sessionId,
+                        checkpointHash = harnessResult.LastCheckpointHash
+                    });
+                }
+            }
 
             var summary = answer;
 
@@ -1133,7 +1828,13 @@ public sealed class DesktopAgentHost : IAsyncDisposable
 
             OnRunStateChanged?.Invoke(this, new AgentRunStateEventArgs(AgentRunState.Completed, summary, answer));
             if (PostToWebUi)
-                await _pages.PostToPageAsync(new { type = "agentDone", summary, answer });
+                await _pages.PostToPageAsync(new
+                {
+                    type = "agentDone",
+                    summary,
+                    answer,
+                    runId = harnessResult.RunId
+                });
         }
         catch (OperationCanceledException)
         {
@@ -1472,14 +2173,23 @@ public sealed class DesktopAgentHost : IAsyncDisposable
                 ? AgentDebugLogger.Begin($"[automation:{automation.Name}] {task}", false)
                 : null;
 
+            var strategy = !string.IsNullOrWhiteSpace(automation.GraphId)
+                ? AgentStrategies.GraphStrategy(automation.GraphId.Trim())
+                : automation.Strategy ?? AgentStrategies.Execute;
+
+            var playbookId = automation.PlaybookId;
+            if (!string.IsNullOrWhiteSpace(automation.BlockPipelineId))
+                playbookId = automation.BlockPipelineId.Trim();
+
             var harnessResult = await GetHarnessRunner().RunAsync(
                 new HarnessRunRequest
                 {
                     Config = _config,
                     Prompt = task,
-                    Strategy = automation.Strategy ?? AgentStrategies.Execute,
-                    PlaybookId = automation.PlaybookId,
-                    SkillId = automation.SkillId
+                    Strategy = strategy,
+                    PlaybookId = playbookId,
+                    SkillId = automation.SkillId,
+                    AgentSessionId = automation.Id
                 },
                 new HarnessRunCallbacks
                 {

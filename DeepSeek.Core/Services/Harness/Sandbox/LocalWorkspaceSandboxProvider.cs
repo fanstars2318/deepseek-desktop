@@ -1,11 +1,16 @@
+using DeepSeekBrowser.Models;
+
 namespace DeepSeekBrowser.Services.Harness.Sandbox;
 
 public sealed class LocalWorkspaceSandboxProvider : IHarnessSandboxProvider
 {
     private readonly Dictionary<string, LocalWorkspaceSandbox> _boxes = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _gate = new();
+    private AppConfig? _config;
 
     public HarnessSandboxKind Kind => HarnessSandboxKind.Local;
+
+    public void Configure(AppConfig config) => _config = config;
 
     public Task<IHarnessSandbox> AcquireAsync(string sessionId, string workspaceRoot, CancellationToken ct)
     {
@@ -14,7 +19,7 @@ public sealed class LocalWorkspaceSandboxProvider : IHarnessSandboxProvider
             if (_boxes.TryGetValue(sessionId, out var existing))
                 return Task.FromResult<IHarnessSandbox>(existing);
 
-            var box = new LocalWorkspaceSandbox(sessionId, workspaceRoot);
+            var box = new LocalWorkspaceSandbox(sessionId, workspaceRoot, _config);
             _boxes[sessionId] = box;
             return Task.FromResult<IHarnessSandbox>(box);
         }

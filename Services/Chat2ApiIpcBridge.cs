@@ -376,14 +376,6 @@ public sealed class Chat2ApiIpcBridge
             {
                 new { id = "standard-openai-tools", label = "Standard OpenAI Tools", status = "ready" },
                 new { id = "cherry-studio-mcp", label = "Cherry Studio MCP", status = "ready" }
-            },
-            providerSupport = new[]
-            {
-                new { providerId = "deepseek", label = "DEEPSEEK", managed = true, protocolId = "managed_xml", status = "supported" },
-                new { providerId = "kimi", label = "KIMI", managed = true, protocolId = "managed_xml", status = "supported" },
-                new { providerId = "glm", label = "GLM", managed = true, protocolId = "managed_xml", status = "supported" },
-                new { providerId = "qwen", label = "QWEN", managed = true, protocolId = "managed_xml", status = "supported" },
-                new { providerId = "mimo", label = "MIMO", managed = true, protocolId = "managed_xml", status = "supported" }
             }
         };
     }

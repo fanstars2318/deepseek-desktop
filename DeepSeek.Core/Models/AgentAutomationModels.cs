@@ -16,6 +16,8 @@ public sealed class AgentAutomation
     public string Strategy { get; set; } = "execute";
     public string? PlaybookId { get; set; }
     public string? SkillId { get; set; }
+    public string? GraphId { get; set; }
+    public string? BlockPipelineId { get; set; }
     public string? WorkspaceRoot { get; set; }
     public long? LastRunAt { get; set; }
     public long? NextRunAt { get; set; }

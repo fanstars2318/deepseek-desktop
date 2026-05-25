@@ -1,5 +1,7 @@
 # DeepSeek Edge Agent Harness（DSD Harness）
 
+> **日常使用**：见 [AGENT_USER_GUIDE.md](./AGENT_USER_GUIDE.md)（设置、命令、Token 优化、验收脚本）。
+
 ## 定位
 
 **Agent = Model + Harness**（原创运行时；学习 Harness 4.0 / DeerFlow 思想，非拷贝）
@@ -21,6 +23,8 @@
 | **KTtao / agent-skills** | 分阶段 Playbook | `~/.deepseek/playbooks/` + Phase 状态机 |
 
 市场互操作详见 [INTEROP.md](./INTEROP.md)：MCP · SKILL.md · OpenAI tools schema。
+
+多智能体（梦之队 / `delegate_agent`）详见 [MULTI_AGENT.md](./MULTI_AGENT.md)。
 
 ## Phase 状态机
 
@@ -79,12 +83,39 @@ flowchart LR
 
 应用退出时 `ShutdownCoordinator` 调用 `HarnessSandboxProviderRegistry.Shutdown()` 释放 Provider。
 
+## 双推理通道与 OpenAI Tools（DeepCode 对齐）
+
+| 设置 | 字段 | 说明 |
+|------|------|------|
+| 推理通道 | `AgentInferenceMode` | `web`（默认，网页 + Chat2API）或 `api`（直连 OpenAI 兼容 API） |
+| 工具协议 | `AgentToolCallingProtocol` | `xml` 或 `openai`；API 模式自动启用 OpenAI tools |
+| API | `AgentApiBaseUrl` / `AgentApiKey` | 直连模式凭据 |
+| 推理强度 | `AgentReasoningEffort` | `high` / `max`（写入 API extra_body） |
+| 思考展示 | `AgentThinkingDisplayMode` | Agent UI `/raw`：normal / lite / raw |
+
+实现：`OpenAiAgentChatClient` · `HarnessOpenAiToolLoop` · `HarnessOpenAiBuiltinTools`（read/write/edit/bash + AskUserQuestion + UpdatePlan）。
+
+网页模式若 Chat2API 不支持 `tools`，可继续用 XML fallback；API 模式完整走 function calling。
+
+### 决断摘要（默认）
+
+| # | 主题 | 选择 |
+|---|------|------|
+| 1 | Skills 路径 | 扩展 `~/.agents/skills` · `./.deepcode/skills`（见 `HarnessInteropPaths`） |
+| 2 | 权限 | 保留 `ApprovalGate`，OpenAI 工具名映射风险等级 |
+| 3 | 计划 | `UpdatePlan` 轻量 checklist + Blueprint 并存 |
+| 4 | 联网 | `smartSearch` + 可选 `WebSearch` tool（`AgentWebSearchScript`） |
+| 5 | Shell | Windows cmd + 沙盒 + stdout 流式（非 Git Bash 持久 session） |
+
 ## 记忆与检查点
+
+结构化 Run Trace 与语义记忆（Mem0 / Langfuse 本地子集）详见 [MEMORY_OBSERVABILITY.md](./MEMORY_OBSERVABILITY.md)。
 
 ```
 ~/.deepseek/
   core.yaml                 # L0 驾驭约束
   memory/
+    semantic.db             # 语义记忆（embedding 检索）
     L2_behavior.yaml        # 行为偏好
     domains/
       registry.json         # 领域关键词路由
@@ -107,7 +138,9 @@ dotnet build DeepSeekBrowser.csproj -c Release
 
 ## Agent UI 命令
 
-`/blueprint` · `/execute` · `/playbook <id>` · `/playbooks` · `/skills` · `/skill <id>` · `/checkpoint` · `/reload` · `/phase`
+`/blueprint` · `/execute` · `/playbook <id>` · `/playbooks` · `/skills` · `/skill <id>` · `/graph list|run` · `/blocks` · `/resume thread <id>` · `/checkpoint` · `/reload` · `/phase` · `/mcp` · `/model` · `/runs` · `/trace` · `/memory` · `/undo` · `/init` · `/raw` · `@` 文件引用
+
+图工作流与 Block 编排详见 [GRAPH_WORKFLOW.md](./GRAPH_WORKFLOW.md)；外部 Skill 合集索引见 [SKILLS_CATALOG.md](./SKILLS_CATALOG.md)。
 
 ## P2 能力
 
@@ -130,3 +163,7 @@ verify:
       name: test
       optional: true
 ```
+
+## 参考仓库（只读）
+
+运行 `scripts/setup-reference-repos.ps1` 将 LangGraph / AutoGPT / Skill 合集等 shallow clone 到 `C:\Users\xiaow\Desktop\DSD\`。clone 失败不阻塞 Harness 运行时；详见各对照文档。

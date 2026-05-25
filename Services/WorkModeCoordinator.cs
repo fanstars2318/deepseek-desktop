@@ -7,11 +7,11 @@ namespace DeepSeekBrowser.Services;
 /// </summary>
 public sealed class WorkModeCoordinator
 {
-    private readonly DesktopWebHost _webHost;
+    private readonly IDdWebPages _webHost;
     private string _mode = "chat";
     private CancellationTokenSource? _retryCts;
 
-    public WorkModeCoordinator(DesktopWebHost webHost) => _webHost = webHost;
+    public WorkModeCoordinator(IDdWebPages webHost) => _webHost = webHost;
 
     public string Mode => _mode;
 
@@ -60,7 +60,8 @@ public sealed class WorkModeCoordinator
     public async Task ShowChatSurfaceAsync(CancellationToken ct = default)
     {
         _webHost.ShowChat();
-        _ = _webHost.Chat.TriggerInjectAsync(forceReset: false);
+        if (_webHost.Chat is WebInjectService chatInject)
+            _ = chatInject.TriggerInjectAsync(forceReset: false);
         await Task.CompletedTask;
     }
 

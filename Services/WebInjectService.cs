@@ -7,7 +7,7 @@ using Microsoft.Web.WebView2.Wpf;
 
 namespace DeepSeekBrowser.Services;
 
-public sealed class WebInjectService : IWebInjectBridge
+public sealed class WebInjectService : IWebInjectBridge, IDdPageMessenger
 {
     private readonly WebView2 _webView;
     private readonly WebViewPageKind _pageKind;
@@ -21,6 +21,8 @@ public sealed class WebInjectService : IWebInjectBridge
 
     /// <summary>当前 Agent 任务附带的网页端文件 ID（上传后填入 ref_file_ids）。</summary>
     public IReadOnlyList<string> AgentRefFileIds { get; set; } = Array.Empty<string>();
+
+    public string? Source => _webView.CoreWebView2?.Source;
 
     public WebInjectService(WebView2 webView, WebViewPageKind pageKind = WebViewPageKind.Chat)
     {
@@ -94,27 +96,11 @@ public sealed class WebInjectService : IWebInjectBridge
         await core.AddScriptToExecuteOnDocumentCreatedAsync(_bridgeScript!);
         if (!string.IsNullOrEmpty(_workModeClientScript))
             await core.AddScriptToExecuteOnDocumentCreatedAsync(_workModeClientScript);
-        if (!string.IsNullOrEmpty(_overlayCss))
-        {
-            var cssEsc = JsonSerializer.Serialize(_overlayCss);
-            if (_pageKind == WebViewPageKind.Chat)
-            {
-                await core.AddScriptToExecuteOnDocumentCreatedAsync(
-                    "(function(){try{"
-                    + "if(/^ds-agent\\.local$/i.test(location.hostname))return;"
-                    + "var p=document.head||document.documentElement;"
-                    + "if(!p)return;"
-                    + $"var s=document.createElement('style');s.textContent={cssEsc};"
-                    + "p.appendChild(s);"
-                    + "}catch(e){}})();");
-            }
-        }
-
         if (_pageKind == WebViewPageKind.Chat)
         {
-            var overlayGuarded =
-                "if(!/^ds-agent\\.local$/i.test(location.hostname)){" + _overlayScript + "}";
-            await core.AddScriptToExecuteOnDocumentCreatedAsync(overlayGuarded);
+            var chatBootstrap = BuildChatDocumentBootstrapScript();
+            if (!string.IsNullOrEmpty(chatBootstrap))
+                await core.AddScriptToExecuteOnDocumentCreatedAsync(chatBootstrap);
         }
         core.WebMessageReceived += OnWebMessageReceived;
     }
@@ -204,6 +190,26 @@ public sealed class WebInjectService : IWebInjectBridge
         _workModeClientScript = GuardDocumentCreatedScript(assets.WorkModeClient, "work-mode");
         _overlayScript = assets.Overlay;
         _overlayCss = assets.Css;
+    }
+
+    private string BuildChatDocumentBootstrapScript()
+    {
+        var parts = new List<string> { "if(/^ds-agent\\.local$/i.test(location.hostname))return;" };
+        if (!string.IsNullOrEmpty(_overlayCss))
+        {
+            var cssEsc = JsonSerializer.Serialize(_overlayCss);
+            parts.Add(
+                "(function(){try{"
+                + "var p=document.head||document.documentElement;"
+                + "if(!p)return;"
+                + $"var s=document.createElement('style');s.textContent={cssEsc};"
+                + "p.appendChild(s);"
+                + "}catch(e){}})();");
+        }
+
+        if (!string.IsNullOrEmpty(_overlayScript))
+            parts.Add(_overlayScript);
+        return parts.Count <= 1 ? "" : string.Concat(parts);
     }
 
     /// <summary>Chat2API 内嵌 iframe 不注入官网桥脚本，避免破坏 React 首屏。</summary>

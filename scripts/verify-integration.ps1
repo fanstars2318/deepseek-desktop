@@ -1,5 +1,6 @@
 param(
-    [string]$PublishDir = ""
+    [string]$PublishDir = "",
+    [switch]$Qt
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,7 +14,14 @@ function Assert-File($path, $label) {
 }
 
 Write-Host "verify-integration: publish dir $PublishDir"
-Assert-File (Join-Path $PublishDir "DeepSeek.exe") "main exe"
+Assert-File (Join-Path $PublishDir "DeepSeek.exe") "runtime launcher exe"
+if ($Qt) {
+    Assert-File (Join-Path $PublishDir "DeepSeek.Qt.exe") "Qt main shell exe"
+    Assert-File (Join-Path $PublishDir "DeepSeek.Bridge.exe") "Qt bridge exe"
+    Assert-File (Join-Path $PublishDir "Assets\inject\dd-webview-shim.js") "DD webview shim"
+} else {
+    Assert-File (Join-Path $PublishDir "DeepSeek.App.exe") "main app exe"
+}
 Assert-File (Join-Path $PublishDir "Assets\inject\bridge.js") "inject bridge"
 Assert-File (Join-Path $PublishDir "Assets\inject\overlay.js") "inject overlay"
 $harnessSrc = Join-Path $root "DeepSeek.Core\Services\Harness\DeepSeekHarnessRunner.cs"
@@ -37,6 +45,12 @@ function Assert-TextFileContains {
 
 $agentIndex = Join-Path $PublishDir "Assets\agent\index.html"
 $agentApp = Join-Path $PublishDir "Assets\agent\agent-app.js"
+$node = Get-Command node -ErrorAction SilentlyContinue
+if ($node) {
+    & node --check $agentApp
+    if ($LASTEXITCODE -ne 0) { throw "agent-app.js syntax check failed (node --check)" }
+    Write-Host "  OK agent-app.js syntax (node --check)"
+}
 $settingsEmbed = Join-Path $PublishDir "Assets\agent\settings-embed.js"
 Assert-TextFileContains $agentIndex "slash-palette" "Agent slash command palette"
 Assert-TextFileContains $agentApp "slashPaletteHandleKeydown" "Agent slash palette keyboard"

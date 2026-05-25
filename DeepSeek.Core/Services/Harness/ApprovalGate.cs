@@ -13,7 +13,15 @@ public sealed class ApprovalGate
         _requestApproval = requestApproval;
     }
 
-    public async Task<bool> AllowToolAsync(string toolName, string detail, HarnessPhase phase, CancellationToken ct)
+    public Task<bool> AllowToolAsync(string toolName, string detail, HarnessPhase phase, CancellationToken ct) =>
+        AllowToolAsync(toolName, detail, phase, ct, suppressPrompt: false);
+
+    public async Task<bool> AllowToolAsync(
+        string toolName,
+        string detail,
+        HarnessPhase phase,
+        CancellationToken ct,
+        bool suppressPrompt)
     {
         ct.ThrowIfCancellationRequested();
         if (HarnessPhasePolicy.IsReadonlyPhase(phase))
@@ -21,6 +29,9 @@ public sealed class ApprovalGate
 
         if (IsShellTool(toolName) && !_config.AgentAllowShell)
             return false;
+
+        if (suppressPrompt)
+            return true;
 
         var mode = (_config.AgentApprovalMode ?? "smart").Trim().ToLowerInvariant();
         if (mode is "never")
@@ -52,9 +63,17 @@ public sealed class ApprovalGate
 
     public bool IsReadonlyTool(string toolName)
     {
-        var n = toolName.ToLowerInvariant();
-        if (n.Contains("write") || n.Contains("edit") || n.Contains("shell") || n.Contains("run_shell"))
+        var n = NormalizeToolName(toolName);
+        if (n is "read" or "read_file" or "list_dir" or "grep" or "glob"
+            or "image_analyze" or "delegate_agent" or "askuserquestion" or "updateplan" or "websearch")
+            return true;
+        if (n.Contains("write") || n.Contains("edit") || n is "bash" or "run_shell")
             return false;
-        return true;
+        if (n.StartsWith("mcp_", StringComparison.Ordinal))
+            return true;
+        return !IsWriteOrShell(n);
     }
+
+    private static string NormalizeToolName(string toolName) =>
+        toolName.Trim().ToLowerInvariant().Replace(" ", "", StringComparison.Ordinal);
 }

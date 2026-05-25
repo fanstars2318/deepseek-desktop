@@ -2,6 +2,7 @@
 bin/
 obj/
 publish/
+publish-dd-test/
 DeepSeek-Desktop-*.zip
 
 # IDE (local launch configs)
@@ -11,6 +12,7 @@ DeepSeek-Desktop-*.zip
 .vs/
 .idea/
 .serena/
+.cursor/
 *.user
 *.suo
 
@@ -28,6 +30,9 @@ appsettings.*.json
 tools/**/bin/
 tools/**/obj/
 tmp-*.cs
+
+# Qt CMake build tree
+DeepSeek.Qt/build/
 
 # DeepSeek-TUI submodule build output
 third-party/DeepSeek-TUI/target/

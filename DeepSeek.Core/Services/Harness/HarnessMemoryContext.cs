@@ -23,6 +23,8 @@ public sealed class HarnessMemoryContext
 
     public string? Pitfalls { get; init; }
 
+    public IReadOnlyList<string> SemanticMemories { get; init; } = Array.Empty<string>();
+
     public bool IsEmpty =>
         string.IsNullOrWhiteSpace(L0CoreExcerpt)
         && string.IsNullOrWhiteSpace(L2Behavior)
@@ -30,7 +32,8 @@ public sealed class HarnessMemoryContext
         && string.IsNullOrWhiteSpace(L3Cognitive)
         && string.IsNullOrWhiteSpace(CheckpointSummary)
         && PendingItems.Count == 0
-        && string.IsNullOrWhiteSpace(Pitfalls);
+        && string.IsNullOrWhiteSpace(Pitfalls)
+        && SemanticMemories.Count == 0;
 
     public string BuildPromptSection()
     {
@@ -38,6 +41,14 @@ public sealed class HarnessMemoryContext
 
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("【DSD Harness 记忆层 · Domain: " + DomainName + " (" + DomainId + ")】");
+
+        if (SemanticMemories.Count > 0)
+        {
+            sb.AppendLine("语义记忆（相关检索）：");
+            foreach (var item in SemanticMemories)
+                sb.AppendLine(item);
+            sb.AppendLine();
+        }
 
         if (!string.IsNullOrWhiteSpace(CheckpointSummary))
         {

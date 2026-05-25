@@ -12,7 +12,8 @@ public interface IAgentWebChat
         bool allowToolCalls,
         CancellationToken ct,
         string? webUserToken = null,
-        string? webChatSessionId = null);
+        string? webChatSessionId = null,
+        AgentChatOptions? options = null);
 
     IAsyncEnumerable<WebChatStreamEvent> StreamAsync(
         IReadOnlyList<ChatMessage> messages,
@@ -23,5 +24,6 @@ public interface IAgentWebChat
         bool allowToolCalls,
         CancellationToken ct,
         string? webUserToken = null,
-        string? webChatSessionId = null);
+        string? webChatSessionId = null,
+        AgentChatOptions? options = null);
 }

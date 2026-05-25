@@ -1,5 +1,5 @@
+using DeepSeekBrowser.Services.Harness.Graph;
 using DeepSeekBrowser.Services.Harness.Interop;
-
 namespace DeepSeekBrowser.Services.Harness;
 
 public static class HarnessRegistryReload
@@ -12,6 +12,8 @@ public static class HarnessRegistryReload
     {
         HarnessPlaybookRegistry.InvalidateCache();
         HarnessSkillRegistry.InvalidateCache();
+        HarnessGraphRegistry.InvalidateCache();
+        HarnessBlockRegistry.InvalidateCache();
         _lastReloadUtc = DateTime.UtcNow;
     }
 }

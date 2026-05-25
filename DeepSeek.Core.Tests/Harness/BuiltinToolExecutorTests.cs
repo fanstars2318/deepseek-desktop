@@ -8,11 +8,16 @@ public sealed class BuiltinToolExecutorTests
 {
     [Theory]
     [InlineData("read_file")]
+    [InlineData("read")]
     [InlineData("write_file")]
+    [InlineData("write")]
+    [InlineData("edit_file")]
+    [InlineData("edit")]
     [InlineData("list_dir")]
     [InlineData("grep")]
     [InlineData("glob")]
     [InlineData("run_shell")]
+    [InlineData("bash")]
     public void IsBuiltin_recognizes_builtin_tools(string name)
     {
         Assert.True(BuiltinToolExecutor.IsBuiltin(name));
@@ -42,7 +47,29 @@ public sealed class BuiltinToolExecutorTests
             var readJson = JsonSerializer.Serialize(new { path = virt });
             var readResult = await executor.ExecuteAsync(
                 "read_file", readJson, workspace, allowShell: false, CancellationToken.None);
-            Assert.Equal("hello-sandbox", readResult);
+            Assert.Contains("hello-sandbox", readResult);
+        }
+        finally
+        {
+            try { Directory.Delete(workspace, true); } catch { /* ignore */ }
+        }
+    }
+
+    [Fact]
+    public async Task Edit_alias_replaces_via_edit_file()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), "dsd-builtin-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workspace);
+        await File.WriteAllTextAsync(Path.Combine(workspace, "patch.txt"), "foo bar");
+        var executor = new BuiltinToolExecutor();
+
+        try
+        {
+            var json = JsonSerializer.Serialize(new { path = "patch.txt", old_string = "bar", new_string = "baz" });
+            var result = await executor.ExecuteAsync(
+                "edit", json, workspace, allowShell: false, CancellationToken.None);
+            Assert.Contains("已编辑", result);
+            Assert.Equal("foo baz", await File.ReadAllTextAsync(Path.Combine(workspace, "patch.txt")));
         }
         finally
         {

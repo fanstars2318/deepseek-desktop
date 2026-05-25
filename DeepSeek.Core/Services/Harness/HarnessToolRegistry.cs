@@ -6,6 +6,10 @@ namespace DeepSeekBrowser.Services.Harness;
 /// <summary>L1 能力层：内置工具 schema + MCP 目录文本（供系统提示注入）。</summary>
 public static class HarnessToolRegistry
 {
+    public static string BuildBuiltinToolsSectionCompact() =>
+        "内置工具（<tool_calling> + JSON arguments）：read_file, write_file, list_dir, grep, glob, run_shell, " +
+        "WebSearch, image_analyze, AskUserQuestion, UpdatePlan；示例：<name>read_file</name><arguments>{\"path\":\"…\"}</arguments>。";
+
     public static string BuildBuiltinToolsSection()
     {
         var sb = new StringBuilder();
