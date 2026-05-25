@@ -8,9 +8,11 @@
 #include <QFileInfo>
 #include <QIcon>
 #include <QJsonObject>
+#include <QLabel>
 #include <QProcess>
 #include <QStackedWidget>
 #include <QTimer>
+#include <QVBoxLayout>
 #include <QWebEngineProfile>
 #include <QWebEngineView>
 
@@ -31,8 +33,29 @@ MainWindow::MainWindow(const QString &publishDir, QWidget *parent)
     const QString assetsRoot = QDir(publishDir).filePath(QStringLiteral("Assets"));
     AssetUrlScheme::installHandlers(QWebEngineProfile::defaultProfile(), assetsRoot);
 
-    m_stack = new QStackedWidget(this);
-    setCentralWidget(m_stack);
+    auto *central = new QWidget(this);
+    auto *rootLayout = new QVBoxLayout(central);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+
+    m_stack = new QStackedWidget(central);
+    rootLayout->addWidget(m_stack);
+    setCentralWidget(central);
+
+    m_loadingOverlay = new QWidget(central);
+    m_loadingOverlay->setStyleSheet(QStringLiteral("background:#FFFFFF;"));
+    auto *overlayLayout = new QVBoxLayout(m_loadingOverlay);
+    overlayLayout->setAlignment(Qt::AlignCenter);
+    auto *title = new QLabel(QStringLiteral("正在启动 DeepSeek"), m_loadingOverlay);
+    title->setStyleSheet(QStringLiteral("font-size:17px;font-weight:600;color:#1a1a1a;"));
+    title->setAlignment(Qt::AlignCenter);
+    auto *hint = new QLabel(QStringLiteral("加载网页会话与本地 Chat2API…"), m_loadingOverlay);
+    hint->setStyleSheet(QStringLiteral("font-size:13px;color:#666666;margin-top:10px;"));
+    hint->setAlignment(Qt::AlignCenter);
+    overlayLayout->addWidget(title);
+    overlayLayout->addWidget(hint);
+    m_loadingOverlay->raise();
+    m_loadingOverlay->resize(size());
+    setLoadingVisible(true);
 
     m_bridge = new BridgeClient(this);
     connect(m_bridge, &BridgeClient::envelopeReceived, this, &MainWindow::onBridgeEnvelope);
@@ -43,10 +66,36 @@ MainWindow::MainWindow(const QString &publishDir, QWidget *parent)
     m_stack->addWidget(m_chatPage);
     m_stack->addWidget(m_agentPage);
 
+    connect(m_chatPage->view(), &QWebEngineView::loadStarted, this, [this]() { setLoadingVisible(true); });
+    connect(m_chatPage->view(), &QWebEngineView::loadFinished, this, [this](bool ok) {
+        if (ok && m_stack->currentWidget() == m_chatPage)
+            setLoadingVisible(false);
+    });
+    connect(m_agentPage->view(), &QWebEngineView::loadFinished, this, [this](bool ok) {
+        if (ok && m_stack->currentWidget() == m_agentPage)
+            setLoadingVisible(false);
+    });
+
     m_agentPage->loadUrl(QUrl(QStringLiteral("https://ds-agent.local/index.html?build=23")));
     m_chatPage->loadUrl(QUrl(QStringLiteral("https://chat.deepseek.com/")));
 
     startBridgeProcess();
+}
+
+void MainWindow::setLoadingVisible(bool visible)
+{
+    if (!m_loadingOverlay)
+        return;
+    m_loadingOverlay->setVisible(visible);
+    if (visible)
+        m_loadingOverlay->raise();
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    if (m_loadingOverlay && centralWidget())
+        m_loadingOverlay->setGeometry(centralWidget()->rect());
 }
 
 void MainWindow::startBridgeProcess()
@@ -77,6 +126,7 @@ bool MainWindow::connectBridge()
     m_bridge->sendControl(QJsonObject{
         {QStringLiteral("type"), QStringLiteral("ddReady")},
     });
+    QTimer::singleShot(1200, this, [this]() { setLoadingVisible(false); });
     return true;
 }
 

@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDir>
+#include <QScreen>
 
 int main(int argc, char *argv[])
 {
@@ -22,6 +23,7 @@ int main(int argc, char *argv[])
     }
 
     MainWindow window(publishDir);
+    window.move(QApplication::primaryScreen()->availableGeometry().center() - window.rect().center());
     window.show();
 
     return app.exec();

@@ -4,8 +4,8 @@
 #include "DeepSeekHost.h"
 
 #include <QFile>
-#include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QJsonValue>
 #include <QVBoxLayout>
 #include <QWebChannel>
@@ -37,7 +37,7 @@ WebViewPage::WebViewPage(BridgeClient *bridge, const QString &channel, const QSt
                          bool injectChatOverlay, QWidget *parent)
     : QWidget(parent)
     , m_bridge(bridge)
-    , m_channel(channel)
+    , m_ipcChannel(channel)
     , m_assetsRoot(assetsRoot)
     , m_injectChatOverlay(injectChatOverlay)
 {
@@ -55,10 +55,10 @@ WebViewPage::WebViewPage(BridgeClient *bridge, const QString &channel, const QSt
 
 void WebViewPage::setupChannel()
 {
-    m_host = new DeepSeekHost(m_bridge, m_channel, this);
-    m_channel = new QWebChannel(m_view->page());
-    m_channel->registerObject(QStringLiteral("deepSeekHost"), m_host);
-    m_view->page()->setWebChannel(m_channel);
+    m_host = new DeepSeekHost(m_bridge, m_ipcChannel, this);
+    m_webChannel = new QWebChannel(m_view->page());
+    m_webChannel->registerObject(QStringLiteral("deepSeekHost"), m_host);
+    m_view->page()->setWebChannel(m_webChannel);
 
     connect(m_host, &DeepSeekHost::sendMessage, this, [this](const QString &json) {
         QJsonParseError err;
@@ -71,7 +71,7 @@ void WebViewPage::setupChannel()
 void WebViewPage::injectCreationScripts()
 {
     const QString injectDir = m_assetsRoot + QStringLiteral("/inject");
-    auto *scripts = m_view->page()->scripts();
+    auto &scripts = m_view->page()->scripts();
 
     const auto addScript = [&](const QString &source) {
         if (source.isEmpty())
@@ -81,7 +81,7 @@ void WebViewPage::injectCreationScripts()
         script.setInjectionPoint(QWebEngineScript::DocumentCreation);
         script.setWorldId(QWebEngineScript::MainWorld);
         script.setRunsOnSubFrames(true);
-        scripts->insert(script);
+        scripts.insert(script);
     };
 
     addScript(readTextFile(injectDir + QStringLiteral("/dd-webview-shim.js")));

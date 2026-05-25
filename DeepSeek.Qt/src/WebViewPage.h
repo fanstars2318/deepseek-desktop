@@ -1,7 +1,8 @@
 #pragma once
 
+#include <QJsonObject>
+#include <QUrl>
 #include <QWidget>
-
 class QWebEngineView;
 class QWebChannel;
 class DeepSeekHost;
@@ -27,10 +28,10 @@ private:
     void injectCreationScripts();
 
     QWebEngineView *m_view = nullptr;
-    QWebChannel *m_channel = nullptr;
+    QWebChannel *m_webChannel = nullptr;
     DeepSeekHost *m_host = nullptr;
     BridgeClient *m_bridge = nullptr;
-    QString m_channel;
+    QString m_ipcChannel;
     QString m_assetsRoot;
     bool m_injectChatOverlay = false;
 };

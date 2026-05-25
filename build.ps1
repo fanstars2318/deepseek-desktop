@@ -140,7 +140,7 @@ if (Test-Path $legacyBin) {
 
 # WinUI 发布目录不应包含旧 WPF 主程序集
 $staleWpf = Join-Path $out "DeepSeek.dll"
-if ((Test-Path $staleWpf) -and -not $useWpf) {
+if ((Test-Path $staleWpf) -and -not $useWpf -and -not $Qt) {
     Remove-Item -Force $staleWpf, (Join-Path $out "DeepSeek.pdb") -ErrorAction SilentlyContinue
 }
 
