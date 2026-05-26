@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <_DeepSeekRepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)'))</_DeepSeekRepoRoot>
+    <_DeepSeekDsdRoot>$([System.IO.Path]::GetFullPath('$(_DeepSeekRepoRoot)..\'))</_DeepSeekDsdRoot>
+    <_DeepSeekBuildRoot Condition="'$(DEEPSEEK_BUILD_DIR)' != ''">$([System.IO.Path]::GetFullPath('$(DEEPSEEK_BUILD_DIR)'))</_DeepSeekBuildRoot>
+    <_DeepSeekBuildRoot Condition="'$(_DeepSeekBuildRoot)' == ''">$([System.IO.Path]::Combine('$(_DeepSeekDsdRoot)', 'DDbuilding', 'deepseek_desktop'))</_DeepSeekBuildRoot>
+    <BaseOutputPath>$(_DeepSeekBuildRoot)\$(MSBuildProjectName)\bin\</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(_DeepSeekBuildRoot)\$(MSBuildProjectName)\obj\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

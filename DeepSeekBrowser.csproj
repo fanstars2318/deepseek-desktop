@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tools\**;DeepSeek.Core\**;DeepSeek.Core.Tests\**;DeepSeek.Desktop\**;DeepSeek.Launcher\**;DeepSeek.DdBridge\**;DeepSeek.Qt\**;tmp-*.cs</DefaultItemExcludes>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationTitle>DeepSeek</ApplicationTitle>
+    <Product>DeepSeek Browser</Product>
+    <Description>基于 Microsoft Edge (WebView2) 的 DeepSeek 专用浏览器</Description>
+    <Version>1.0.0</Version>
+    <AssemblyName>DeepSeek</AssemblyName>
+    <RootNamespace>DeepSeekBrowser</RootNamespace>
+    <ApplicationIcon>Assets\deepseek.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="DeepSeek.Core\DeepSeek.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Models\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\deepseek.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\inject\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\agent\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\chat2api\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\chat2api-ui\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\tools\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Resource Include="Assets\logo.png" />
+  </ItemGroup>
+
+  <Target Name="GenerateAppIcon" BeforeTargets="BeforeBuild">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(ProjectDir)tools\generate-icon.ps1&quot;" />
+  </Target>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3967.48" />
+    <PackageReference Include="ModelContextProtocol" Version="0.8.0-preview.1" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,238 @@
+<Window x:Class="DeepSeekBrowser.Views.DesktopSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DeepSeek 设置"
+        Height="720" Width="600"
+        MinHeight="520" MinWidth="540"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        Style="{StaticResource DsWindow}">
+  <DockPanel Margin="{StaticResource DsDialogMargin}" LastChildFill="True">
+
+    <Border DockPanel.Dock="Bottom" Style="{StaticResource DsDialogFooter}" Margin="0,12,0,0">
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button Content="取消" Click="Cancel_Click" Style="{StaticResource DsGhostButton}" MinWidth="80" Margin="0,0,10,0"/>
+        <Button Content="保存" Click="Save_Click" Style="{StaticResource DsPrimaryButton}"/>
+      </StackPanel>
+    </Border>
+
+    <Button DockPanel.Dock="Bottom"
+            x:Name="AddMcpButton"
+            Click="AddMcp_Click"
+            Style="{StaticResource DsAddMcpCard}"
+            Margin="0,10,0,0"
+            MinHeight="48"/>
+
+    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+      <TextBlock Text="DeepSeek 设置" Style="{StaticResource DsPageTitle}"/>
+      <TextBlock Style="{StaticResource DsPageSubtitle}" Text="Agent · 多智能体 · 记忆 · MCP"/>
+    </StackPanel>
+
+    <TabControl Style="{StaticResource DsTabControl}" Padding="0,4,0,0">
+      <!-- 常规 -->
+      <TabItem Header="常规">
+        <ScrollViewer Style="{StaticResource DsScrollViewer}" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="0,8,4,16">
+            <TextBlock Text="Chat2API" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,10"/>
+            <Border Style="{StaticResource DsCard}" Margin="{StaticResource DsSectionGap}">
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="16"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Row="0" Grid.Column="0">
+                  <TextBlock Text="本地 API" Style="{StaticResource DsCaption}"/>
+                  <TextBlock x:Name="LocalApiUrlText" Style="{StaticResource DsLink}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="2">
+                  <TextBlock Text="网页登录" Style="{StaticResource DsCaption}"/>
+                  <TextBlock x:Name="WebTokenStatus" Style="{StaticResource DsBody}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,16,0,0">
+                  <TextBlock Text="本地 API 端口" Style="{StaticResource DsCaption}"/>
+                  <TextBox x:Name="PortBox" Style="{StaticResource DsTextBox}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,16,0,0">
+                  <TextBlock Text="最大 Agent 步数" Style="{StaticResource DsCaption}"/>
+                  <TextBox x:Name="MaxStepsBox" Style="{StaticResource DsTextBox}"/>
+                </StackPanel>
+                <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,16,0,0">
+                  <TextBlock x:Name="Chat2ApiSummaryText" Style="{StaticResource DsHint}" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Grid>
+            </Border>
+
+            <TextBlock Text="Agent 工作区" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,10"/>
+            <Border Style="{StaticResource DsCard}" Margin="{StaticResource DsSectionGap}">
+              <StackPanel>
+                <TextBlock x:Name="TuiPortInfoText" Style="{StaticResource DsHint}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                  <Button Content="打开 ~/.deepseek" Click="OpenDeepSeekHome_Click" Style="{StaticResource DsGhostButton}" Padding="10,4" Margin="0,0,8,0"/>
+                  <Button Content="运行 doctor" Click="RunDeepSeekDoctor_Click" Style="{StaticResource DsGhostButton}" Padding="10,4"/>
+                </StackPanel>
+                <TextBlock Text="默认工作流" Style="{StaticResource DsCaption}"/>
+                <ComboBox x:Name="AgentStrategyCombo" Style="{StaticResource DsComboBox}" Margin="0,0,0,14"/>
+                <TextBlock Text="工作区根目录（留空 = 用户主目录）" Style="{StaticResource DsCaption}"/>
+                <TextBox x:Name="AgentWorkspaceBox" Style="{StaticResource DsTextBox}" Margin="0,0,0,14"/>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+                  <StackPanel Grid.Column="0">
+                    <TextBlock Text="工具审批" Style="{StaticResource DsCaption}"/>
+                    <ComboBox x:Name="AgentApprovalCombo" Style="{StaticResource DsComboBox}"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2" VerticalAlignment="Bottom">
+                    <CheckBox x:Name="AgentAllowShellCheck" Content="允许 Shell" Style="{StaticResource DsCheckBox}"/>
+                  </StackPanel>
+                </Grid>
+                <CheckBox x:Name="AdaptiveOutputCheck" Content="输出截断时自动续写"
+                          Style="{StaticResource DsCheckBox}" Margin="0,14,0,0"/>
+                <TextBox x:Name="TuiSourcePathBox" Visibility="Collapsed"/>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- 多智能体 -->
+      <TabItem Header="多智能体">
+        <ScrollViewer Style="{StaticResource DsScrollViewer}" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="0,8,4,16">
+            <Border Style="{StaticResource DsCard}" Margin="{StaticResource DsSectionGap}" Background="#F8FAFF">
+              <StackPanel>
+                <TextBlock Text="智能意图" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,4"/>
+                <TextBlock Style="{StaticResource DsHint}" TextWrapping="Wrap" Margin="0,0,0,12"
+                           Text="用户只需描述任务，无需手动指定 /skill 或工具名。"/>
+                <CheckBox x:Name="AgentAutoIntentRoutingCheck" Content="自动分析需求并匹配 Skill / 工具"
+                          Style="{StaticResource DsCheckBox}"/>
+                <CheckBox x:Name="AgentIntentUseLlmPlannerCheck" Content="使用模型生成意图规划（默认关，省 token）"
+                          Style="{StaticResource DsCheckBox}" Margin="20,8,0,0"/>
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource DsCard}" Margin="{StaticResource DsSectionGap}">
+              <StackPanel>
+                <TextBlock Text="协作模式" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,10"/>
+                <CheckBox x:Name="EnableSubAgentsCheck" Content="子 Agent（delegate_agent）"
+                          Style="{StaticResource DsCheckBox}"/>
+                <CheckBox x:Name="EnableTeamWorkflowCheck" Content="Team 梦之队 SOP"
+                          Style="{StaticResource DsCheckBox}" Margin="0,8,0,0"/>
+                <CheckBox x:Name="EnableParallelExploreCheck" Content="并行 Explore 扇出"
+                          Style="{StaticResource DsCheckBox}" Margin="0,8,0,0"/>
+                <CheckBox x:Name="EnableDebateWorkflowCheck" Content="CAMEL 辩论模式"
+                          Style="{StaticResource DsCheckBox}" Margin="0,8,0,0"/>
+                <Grid Margin="0,16,0,0">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+                  <StackPanel Grid.Column="0">
+                    <TextBlock Text="子 Agent 最大步数" Style="{StaticResource DsCaption}"/>
+                    <TextBox x:Name="MaxSubStepsBox" Style="{StaticResource DsTextBox}"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Text="并行上限" Style="{StaticResource DsCaption}"/>
+                    <TextBox x:Name="MaxConcurrentSubAgentsBox" Style="{StaticResource DsTextBox}"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="4">
+                    <TextBlock Text="Explore 扇出" Style="{StaticResource DsCaption}"/>
+                    <TextBox x:Name="ParallelExploreFanOutBox" Style="{StaticResource DsTextBox}"/>
+                  </StackPanel>
+                </Grid>
+                <StackPanel Margin="0,14,0,0">
+                  <TextBlock Text="辩论轮数" Style="{StaticResource DsCaption}"/>
+                  <TextBox x:Name="DebateMaxRoundsBox" Style="{StaticResource DsTextBox}" MaxWidth="120" HorizontalAlignment="Left"/>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- 记忆 -->
+      <TabItem Header="记忆">
+        <ScrollViewer Style="{StaticResource DsScrollViewer}" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="0,8,4,16">
+            <Border Style="{StaticResource DsCard}" Margin="{StaticResource DsSectionGap}">
+              <StackPanel>
+                <TextBlock Text="Run Trace" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,4"/>
+                <TextBlock Style="{StaticResource DsHint}" Text="写入 ~/.deepseek/runs/ · Agent 中 /runs 查看" Margin="0,0,0,12"/>
+                <CheckBox x:Name="StructuredTraceCheck" Content="启用结构化 Trace"
+                          Style="{StaticResource DsCheckBox}"/>
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                  <TextBlock Text="保留天数" Style="{StaticResource DsCaption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                  <TextBox x:Name="TraceRetentionBox" Style="{StaticResource DsTextBox}" Width="72"/>
+                  <TextBlock Text="（0 = 不清理）" Style="{StaticResource DsHint}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+            <Border Style="{StaticResource DsCard}" Margin="{StaticResource DsSectionGap}">
+              <StackPanel>
+                <TextBlock Text="语义记忆" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,12"/>
+                <CheckBox x:Name="SemanticMemoryCheck" Content="启用语义记忆（SQLite + embedding）"
+                          Style="{StaticResource DsCheckBox}"/>
+                <CheckBox x:Name="SemanticMemoryAutoCheck" Content="任务结束后自动提取"
+                          Style="{StaticResource DsCheckBox}" Margin="0,8,0,0"/>
+                <Grid Margin="0,14,0,0">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="16"/>
+                    <ColumnDefinition Width="*"/>
+                  </Grid.ColumnDefinitions>
+                  <StackPanel Grid.Column="0">
+                    <TextBlock Text="检索 Top-K" Style="{StaticResource DsCaption}"/>
+                    <TextBox x:Name="SemanticTopKBox" Style="{StaticResource DsTextBox}"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2">
+                    <TextBlock Text="Embedding 模型" Style="{StaticResource DsCaption}"/>
+                    <TextBox x:Name="EmbeddingModelBox" Style="{StaticResource DsTextBox}"/>
+                  </StackPanel>
+                </Grid>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- MCP -->
+      <TabItem Header="MCP">
+        <DockPanel Margin="0,8,4,16">
+          <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Button Content="连接全部已启用" Click="ConnectAll_Click" HorizontalAlignment="Right"
+                    Style="{StaticResource DsAccentGhostButton}" Padding="12,0"/>
+          </Grid>
+          <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Style="{StaticResource DsCaption}" Text="配置" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBlock Grid.Column="1" x:Name="ConfigPathText" Style="{StaticResource DsBody}" FontSize="11"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+            <Button Grid.Column="2" Content="复制" Click="CopyConfigPath_Click" Style="{StaticResource DsGhostButton}"
+                    Margin="8,0,0,0" MinWidth="48" Padding="8,0" MinHeight="28"/>
+            <Button Grid.Column="3" Content="打开" Click="OpenConfig_Click" Style="{StaticResource DsGhostButton}"
+                    Margin="6,0,0,0" MinWidth="48" Padding="8,0" MinHeight="28"/>
+          </Grid>
+          <Border Style="{StaticResource DsCard}" Padding="8,8,4,8" MinHeight="120">
+            <StackPanel x:Name="McpList"/>
+          </Border>
+        </DockPanel>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
+</Window>

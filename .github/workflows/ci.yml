@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Secret scan
+        shell: pwsh
+        run: ./scripts/scan-secrets.ps1
+
+      - name: Supply chain audit
+        shell: pwsh
+        run: ./scripts/audit-supply-chain.ps1
+
+      - name: Build and test
+        shell: pwsh
+        env:
+          DEEPSEEK_PUBLISH_DIR: ${{ github.workspace }}\..\DDpublish
+          DEEPSEEK_BUILD_DIR: ${{ github.workspace }}\..\DDbuilding\deepseek_desktop
+        run: ./build.ps1 -SkipUiVerify
+
+      - name: Clean artifacts check
+        shell: pwsh
+        run: |
+          foreach ($p in @('./bin', './obj', './publish', './artifacts')) {
+            if (Test-Path $p) { throw "$p must not exist in the source tree (use DDbuilding / DDpublish)" }
+          }

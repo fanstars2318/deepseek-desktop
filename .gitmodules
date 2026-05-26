@@ -1,0 +1,4 @@
+[submodule "third-party/DeepSeek-TUI"]
+	path = third-party/DeepSeek-TUI
+	url = https://github.com/Hmbown/DeepSeek-TUI
+	branch = v0.8.39
