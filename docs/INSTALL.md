@@ -1,6 +1,6 @@
 # DeepSeek Desktop 安装与升级指南
 
-> 撰写：**Auto**（Cursor Agent） · 对应发布：**v2.2.0** · 仓库：[fanstars2318/deepseek-desktop](https://github.com/fanstars2318/deepseek-desktop)
+> 撰写：**Auto**（Cursor Agent） · 对应发布：**v2.3.0** · 仓库：[fanstars2318/deepseek-desktop](https://github.com/fanstars2318/deepseek-desktop)
 
 ---
 
@@ -19,11 +19,11 @@
 ## 2. 从 GitHub Release 安装
 
 1. 打开 [Releases](https://github.com/fanstars2318/deepseek-desktop/releases)。
-2. 在最新版本（例如 **v2.2.0**）的 **Assets** 中下载：
-   - **`DeepSeek-Desktop-v2.2.0-win-x64.zip`** — WPF 主线 Windows x64 便携包
+2. 在最新版本（例如 **v2.3.0**）的 **Assets** 中下载：
+   - **`DeepSeek-Desktop-v2.3.0-win-x64.zip`** — WPF 主线 Windows x64 便携包
 3. 将 zip **完整解压**到目标文件夹，例如 `D:\Apps\DeepSeekDesktop\`。
 4. 双击 **`DeepSeek.exe`** 启动。
-5. 首次启动在嵌入网页中登录 DeepSeek 账号；Agent 与 Chat2API 将复用该会话（见 [AGENT_USER_GUIDE.md](./AGENT_USER_GUIDE.md)）。
+5. 首次启动在嵌入网页中登录 DeepSeek 账号；Agent 与 DSD API 将复用该会话（见 [AGENT_USER_GUIDE.md](./AGENT_USER_GUIDE.md)）。
 
 **不要**只复制单个 `DeepSeek.exe`：必须与同目录下的 `DeepSeek.dll`、`DeepSeek.Core.dll`、`Assets\`、`WebView2Loader.dll` 等一并保留。
 
@@ -36,7 +36,7 @@ DeepSeekDesktop/
 ├── DeepSeek.exe              # 主程序入口
 ├── DeepSeek.dll
 ├── DeepSeek.Core.dll
-├── Assets/                   # Agent、inject、chat2api 等 Web 资源
+├── Assets/                   # Agent、inject、dsd-api 等 Web 资源
 ├── WebView2Loader.dll
 ├── Microsoft.Web.WebView2.*  # WebView2 托管程序集
 ├── e_sqlite3.dll 等          # 本地数据库依赖

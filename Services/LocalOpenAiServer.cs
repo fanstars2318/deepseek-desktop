@@ -1,9 +1,12 @@
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using DeepSeekBrowser.Models;
+using DeepSeekBrowser.Services.ApiManagement;
+using DeepSeekBrowser.Services.Harness;
 
 namespace DeepSeekBrowser.Services;
 
@@ -19,7 +22,8 @@ public sealed class LocalOpenAiServer : IDisposable
     };
 
     private readonly WebInjectService _web;
-    private readonly Chat2ApiSessionStore _sessions = new();
+    private readonly DsdApiSessionStore _sessions = new();
+    private IAgentWebChat? _webBridge;
     private HttpListener? _listener;
     private CancellationTokenSource? _cts;
     private AppConfig _config = new();
@@ -57,7 +61,7 @@ public sealed class LocalOpenAiServer : IDisposable
             StartInternal(allowAgentScope: false);
     }
 
-    public IReadOnlyList<Chat2ApiSessionInfo> ListSessions() => _sessions.ListSessions(_config);
+    public IReadOnlyList<DsdApiSessionInfo> ListSessions() => _sessions.ListSessions(_config);
 
     public bool DeleteSession(string sessionId) => _sessions.Delete(sessionId);
 
@@ -67,7 +71,7 @@ public sealed class LocalOpenAiServer : IDisposable
                           InternalChatChannel.ResolveExternalApiPort(config);
         var wasEnabled = _config.EnableExternalOpenAiApi;
         _config = config;
-        Chat2ApiCompat.EnsureDefaultMappings(_config);
+        DsdOpenAiCompat.EnsureDefaultMappings(_config);
         if (!config.EnableExternalOpenAiApi && _agentScopeDepth == 0)
             Stop();
         else if ((portChanged || !wasEnabled || _agentScopeDepth > 0) && _listener is { IsListening: true })
@@ -141,18 +145,20 @@ public sealed class LocalOpenAiServer : IDisposable
                 (path.Equals("/v1/providers", StringComparison.OrdinalIgnoreCase) ||
                  path.Equals("/v1/integration", StringComparison.OrdinalIgnoreCase)))
             {
-                Chat2ApiHealth? probe = null;
+                DsdApiHealth? probe = null;
                 try
                 {
-                    probe = await _web.ProbeChat2ApiHealthAsync(_config.WebUserToken, BaseUrl);
+                    var probeToken = AccountCredentials.ResolveFirstProviderWebToken("deepseek", _config);
+                    if (!string.IsNullOrWhiteSpace(probeToken))
+                        probe = await _web.ProbeDsdApiHealthAsync(probeToken, BaseUrl);
                 }
                 catch
                 {
-                    // ignore
+                    // ignore: health probe optional for providers listing
                 }
 
-                var snap = Chat2ApiProviderService.Build(_config, probe);
-                await WriteJsonAsync(ctx, 200, Chat2ApiProviderService.ToApiPayload(snap));
+                var snap = DsdApiProviderService.Build(_config, probe);
+                await WriteJsonAsync(ctx, 200, DsdApiProviderService.ToApiPayload(snap));
                 return;
             }
 
@@ -167,7 +173,7 @@ public sealed class LocalOpenAiServer : IDisposable
                 await WriteJsonAsync(ctx, 200, new
                 {
                     @object = "list",
-                    data = Chat2ApiCompat.ListModels(_config)
+                    data = DsdOpenAiCompat.ListModels(_config)
                 });
                 return;
             }
@@ -176,7 +182,7 @@ public sealed class LocalOpenAiServer : IDisposable
                 path.StartsWith("/v1/models/", StringComparison.OrdinalIgnoreCase))
             {
                 var modelId = Uri.UnescapeDataString(path["/v1/models/".Length..]);
-                var model = Chat2ApiCompat.GetModel(modelId, _config);
+                var model = DsdOpenAiCompat.GetModel(modelId, _config);
                 if (model is null)
                 {
                     await WriteJsonAsync(ctx, 404,
@@ -195,7 +201,7 @@ public sealed class LocalOpenAiServer : IDisposable
                 await WriteJsonAsync(ctx, 200, new
                 {
                     sessions = _sessions.ListSessions(_config),
-                    mode = _config.Chat2ApiSessionMode
+                    mode = _config.DsdApiSessionMode
                 });
                 return;
             }
@@ -215,7 +221,7 @@ public sealed class LocalOpenAiServer : IDisposable
             {
                 using var reader = new StreamReader(ctx.Request.InputStream, ctx.Request.ContentEncoding);
                 var bodyText = await reader.ReadToEndAsync();
-                var req = Chat2ApiCompat.ParseCompletion(bodyText, ctx.Request, _config, _sessions);
+                var req = DsdOpenAiCompat.ParseCompletion(bodyText, ctx.Request, _config, _sessions);
 
                 if (req.Stream)
                 {
@@ -238,7 +244,7 @@ public sealed class LocalOpenAiServer : IDisposable
 
     private async Task HandleChatCompletionStreamAsync(
         HttpListenerContext ctx,
-        Chat2ApiCompat.CompletionRequest req)
+        DsdOpenAiCompat.CompletionRequest req)
     {
         try
         {
@@ -248,7 +254,7 @@ public sealed class LocalOpenAiServer : IDisposable
             ctx.Response.Headers.Add("Access-Control-Allow-Origin", "*");
 
             var events = ExecuteChatStreamAsync(req);
-            await Chat2ApiSseWriter.PipeWebStreamAsync(
+            await DsdOpenAiSseWriter.PipeWebStreamAsync(
                 ctx.Response.OutputStream, events, req.RequestedModel, CancellationToken.None);
         }
         catch (Exception ex)
@@ -268,61 +274,83 @@ public sealed class LocalOpenAiServer : IDisposable
     }
 
     private async IAsyncEnumerable<WebChatStreamEvent> ExecuteChatStreamAsync(
-        Chat2ApiCompat.CompletionRequest req)
+        DsdOpenAiCompat.CompletionRequest req)
     {
-        if (string.IsNullOrWhiteSpace(_config.WebUserToken))
-            throw new InvalidOperationException("请先在 DeepSeek 网页登录，本地 API 将自动使用网页会话，无需填写 API Key。");
+        var resolution = ApiRouteResolver.Resolve(_config, WebBridge, null, req.RequestedModel);
+        var routeModel = resolution.ResolvedModel ?? req.ResolvedModel;
+        var webToken = AccountCredentials.ResolveWebUserToken(resolution.Account, _config);
+        EnsureChannelReady(resolution);
 
         var prevRefIds = _web.AgentRefFileIds;
         _web.AgentRefFileIds = req.RefFileIds;
 
         var dbg = AgentDebugLogger.Current;
-        var chatSw = Chat2ApiFeatureScope.HasActiveAgentRun ? System.Diagnostics.Stopwatch.StartNew() : null;
+        var chatSw = DsdAgentApiScope.HasActiveAgentRun ? System.Diagnostics.Stopwatch.StartNew() : null;
         var firstChunk = true;
         var useThinking = req.Thinking;
-        if (Chat2ApiFeatureScope.HasActiveAgentRun && useThinking)
+        if (DsdAgentApiScope.HasActiveAgentRun && useThinking)
         {
             dbg?.Write("CHAT2API", "Agent/TUI 路径：关闭 thinking 以保证 content 流式输出");
             useThinking = false;
         }
 
-        dbg?.LogChat2ApiRequest(
-            req.ResolvedModel,
+        dbg?.LogDsdApiRequest(
+            routeModel,
             useThinking,
             req.WebSearch,
             req.Messages.Count,
             stream: true);
 
         WebChatResult? finalResult = null;
-        await foreach (var ev in _web.WebChatStreamAsync(
-                           req.Messages,
-                           req.ResolvedModel,
-                           useThinking,
-                           req.WebSearch,
-                           CancellationToken.None,
-                           _config.WebUserToken,
-                           req.WebChatSessionId))
+        var streamHadDone = false;
+        var accountId = resolution.Account?.Id;
+        try
         {
-            if (firstChunk && ev is not WebChatStreamDone)
+            await foreach (var ev in resolution.ChatClient.StreamAsync(
+                    req.Messages,
+                    routeModel,
+                    useThinking,
+                    req.WebSearch,
+                    req.RefFileIds,
+                    allowToolCalls: false,
+                    CancellationToken.None,
+                    webToken,
+                    req.WebChatSessionId))
             {
-                firstChunk = false;
-                dbg?.Write("CHAT2API", "流式首包到达");
+                if (firstChunk && ev is not WebChatStreamDone)
+                {
+                    firstChunk = false;
+                    dbg?.Write("CHAT2API", "流式首包到达");
+                }
+
+                if (ev is WebChatStreamDone done)
+                {
+                    finalResult = done.Result;
+                    streamHadDone = true;
+                }
+
+                yield return ev;
             }
 
-            if (ev is WebChatStreamDone done)
-                finalResult = done.Result;
-            yield return ev;
-        }
-
-        if (finalResult is null && Chat2ApiFeatureScope.HasActiveAgentRun)
-        {
-            finalResult = new WebChatResult
+            if (finalResult is null && DsdAgentApiScope.HasActiveAgentRun)
             {
-                Content = "未能从网页会话获取回复，请确认已在「普通对话」登录 DeepSeek 后重试。",
-                Model = req.ResolvedModel,
-                FinishReason = "stop"
-            };
-            yield return new WebChatStreamDone(finalResult);
+                finalResult = new WebChatResult
+                {
+                    Content = "未能获取回复，请确认已在 API 管理中配置有效的 DeepSeek 账户后重试。",
+                    Model = routeModel,
+                    FinishReason = "stop"
+                };
+                streamHadDone = true;
+                yield return new WebChatStreamDone(finalResult);
+            }
+
+            if (accountId is not null && streamHadDone && finalResult is not null)
+                ProviderAccountStore.RecordSuccess(accountId);
+        }
+        finally
+        {
+            if (accountId is not null && !streamHadDone)
+                ProviderAccountStore.RecordFailure(accountId);
         }
 
         _web.AgentRefFileIds = prevRefIds;
@@ -334,8 +362,8 @@ public sealed class LocalOpenAiServer : IDisposable
             var note = finalResult is null
                 ? "stream ended without done"
                 : (reasoning > 0 && chars == 0 ? $"reasoningChars={reasoning}" : null);
-            dbg?.LogChat2ApiDone(
-                req.ResolvedModel,
+            dbg?.LogDsdApiDone(
+                routeModel,
                 chatSw.ElapsedMilliseconds,
                 chars + reasoning,
                 note);
@@ -347,46 +375,62 @@ public sealed class LocalOpenAiServer : IDisposable
             _sessions.Bind(_config, req.SessionId, finalResult.ChatSessionId);
         else if (!string.IsNullOrWhiteSpace(req.SessionId))
             _sessions.Touch(_config, req.SessionId);
+
+        RecordRequestLog(req, resolution, routeModel, finalResult, chatSw?.ElapsedMilliseconds ?? 0, stream: true);
     }
 
-    private async Task<object> HandleChatCompletionAsync(Chat2ApiCompat.CompletionRequest req)
+    private async Task<object> HandleChatCompletionAsync(DsdOpenAiCompat.CompletionRequest req)
     {
         var result = await ExecuteChatAsync(req);
         return BuildChatResponse(result, req.RequestedModel);
     }
 
-    private async Task<WebChatResult> ExecuteChatAsync(Chat2ApiCompat.CompletionRequest req)
+    private async Task<WebChatResult> ExecuteChatAsync(DsdOpenAiCompat.CompletionRequest req)
     {
+        var resolution = ApiRouteResolver.Resolve(_config, WebBridge, null, req.RequestedModel);
+        var routeModel = resolution.ResolvedModel ?? req.ResolvedModel;
+        var webToken = AccountCredentials.ResolveWebUserToken(resolution.Account, _config);
+        EnsureChannelReady(resolution);
+
         var prevRefIds = _web.AgentRefFileIds;
         _web.AgentRefFileIds = req.RefFileIds;
 
-        if (string.IsNullOrWhiteSpace(_config.WebUserToken))
-            throw new InvalidOperationException("请先在 DeepSeek 网页登录，本地 API 将自动使用网页会话，无需填写 API Key。");
-
         var dbg = AgentDebugLogger.Current;
-        var chatSw = Chat2ApiFeatureScope.HasActiveAgentRun ? System.Diagnostics.Stopwatch.StartNew() : null;
+        var chatSw = DsdAgentApiScope.HasActiveAgentRun ? System.Diagnostics.Stopwatch.StartNew() : null;
         var useThinking = req.Thinking;
-        if (Chat2ApiFeatureScope.HasActiveAgentRun && useThinking)
+        if (DsdAgentApiScope.HasActiveAgentRun && useThinking)
             useThinking = false;
 
-        dbg?.LogChat2ApiRequest(
-            req.ResolvedModel,
+        dbg?.LogDsdApiRequest(
+            routeModel,
             useThinking,
             req.WebSearch,
             req.Messages.Count,
             stream: false);
 
         WebChatResult result;
+        Exception? chatError = null;
         try
         {
-            result = await _web.WebChatAsync(
+            result = await resolution.ChatClient.CompleteAsync(
                 req.Messages,
-                req.ResolvedModel,
+                routeModel,
                 useThinking,
                 req.WebSearch,
+                req.RefFileIds,
+                allowToolCalls: false,
                 CancellationToken.None,
-                _config.WebUserToken,
+                webToken,
                 req.WebChatSessionId);
+            if (resolution.Account is not null)
+                ProviderAccountStore.RecordSuccess(resolution.Account.Id);
+        }
+        catch (Exception ex)
+        {
+            chatError = ex;
+            if (resolution.Account is not null)
+                ProviderAccountStore.RecordFailure(resolution.Account.Id);
+            throw;
         }
         finally
         {
@@ -398,8 +442,8 @@ public sealed class LocalOpenAiServer : IDisposable
             chatSw.Stop();
             var chars = result.Content?.Length ?? 0;
             var reasoning = result.ReasoningContent?.Length ?? 0;
-            dbg?.LogChat2ApiDone(
-                req.ResolvedModel,
+            dbg?.LogDsdApiDone(
+                routeModel,
                 chatSw.ElapsedMilliseconds,
                 chars + reasoning,
                 reasoning > 0 ? $"reasoningChars={reasoning}" : null);
@@ -411,7 +455,64 @@ public sealed class LocalOpenAiServer : IDisposable
         else if (!string.IsNullOrWhiteSpace(req.SessionId))
             _sessions.Touch(_config, req.SessionId);
 
+        RecordRequestLog(req, resolution, routeModel, result, chatSw?.ElapsedMilliseconds ?? 0, stream: false, chatError);
         return result;
+    }
+
+    private static void RecordRequestLog(
+        DsdOpenAiCompat.CompletionRequest req,
+        ApiRouteResolution resolution,
+        string routeModel,
+        WebChatResult? result,
+        long latencyMs,
+        bool stream,
+        Exception? error = null)
+    {
+        try
+        {
+            var success = error is null && result is not null;
+            var preview = result?.Content;
+            if (string.IsNullOrWhiteSpace(preview))
+                preview = result?.ReasoningContent;
+
+            DsdApiRequestLogStore.Instance.Add(new DsdApiRequestLogStore.RequestLogDraft
+            {
+                Success = success,
+                StatusCode = success ? 200 : 500,
+                ResponseStatus = success ? 200 : 500,
+                Method = "POST",
+                Url = "/v1/chat/completions",
+                Model = req.RequestedModel,
+                ActualModel = result?.Model ?? routeModel,
+                ProviderId = resolution.Provider.Id,
+                ProviderName = resolution.Provider.DisplayName,
+                AccountId = resolution.Account?.Id ?? "embedded",
+                AccountName = resolution.Account?.Name
+                    ?? resolution.Provider.DisplayName
+                    ?? "DeepSeek Desktop",
+                UserInput = ExtractLastUserMessage(req.Messages),
+                WebSearch = req.WebSearch,
+                ResponsePreview = preview,
+                LatencyMs = latencyMs,
+                IsStream = stream,
+                ErrorMessage = error?.Message
+            });
+        }
+        catch
+        {
+            // diagnostics only
+        }
+    }
+
+    private static string? ExtractLastUserMessage(IReadOnlyList<ChatMessage> messages)
+    {
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(messages[i].Role, "user", StringComparison.OrdinalIgnoreCase))
+                return messages[i].Content;
+        }
+
+        return null;
     }
 
     private static object BuildChatResponse(WebChatResult result, string? requestedModel = null)
@@ -491,8 +592,20 @@ public sealed class LocalOpenAiServer : IDisposable
 
     private async Task<object> BuildHealthPayloadAsync()
     {
-        var health = await _web.ProbeChat2ApiHealthAsync(_config.WebUserToken, BaseUrl);
-        var snap = Chat2ApiProviderService.Build(_config, health);
+        DsdApiHealth? health = null;
+        try
+        {
+            var probeToken = AccountCredentials.ResolveFirstProviderWebToken("deepseek", _config);
+            if (!string.IsNullOrWhiteSpace(probeToken))
+                health = await _web.ProbeDsdApiHealthAsync(probeToken, BaseUrl);
+        }
+        catch
+        {
+            health = null;
+        }
+
+        health ??= new DsdApiHealth { BaseUrl = BaseUrl, Error = "未配置 DeepSeek API 账户" };
+        var snap = DsdApiProviderService.Build(_config, health);
         var keys = _config.LocalApiKeys;
         return new
         {
@@ -507,7 +620,7 @@ public sealed class LocalOpenAiServer : IDisposable
             api_key_auth_enabled = LocalApiKeyService.ShouldEnforceAuth(_config),
             api_key_count = keys.Count,
             api_key_enabled_count = keys.Count(k => k.Enabled),
-            session_mode = _config.Chat2ApiSessionMode,
+            session_mode = _config.DsdApiSessionMode,
             active_sessions = _sessions.Count,
             error = health.Error,
             provider = new
@@ -518,7 +631,7 @@ public sealed class LocalOpenAiServer : IDisposable
                 snap.Online,
                 snap.AuthType,
                 snap.ModelCount,
-                snap.Chat2ApiBaseUrl,
+                snap.DsdApiBaseUrl,
                 api_key_masked = snap.ApiKeyMasked
             },
             deepseek_tui = new
@@ -526,7 +639,7 @@ public sealed class LocalOpenAiServer : IDisposable
                 runtime_url = snap.TuiRuntimeUrl,
                 config_path = snap.TuiConfigPath,
                 integration_file = snap.IntegrationFilePath,
-                chat2api_base_url = snap.Chat2ApiBaseUrl
+                dsd_api_base_url = snap.DsdApiBaseUrl
             }
         };
     }
@@ -547,5 +660,96 @@ public sealed class LocalOpenAiServer : IDisposable
         await ctx.Response.OutputStream.WriteAsync(bytes);
     }
 
+    private IAgentWebChat WebBridge => _webBridge ??= new WebInjectWebChatAdapter(_web);
+
+    private void EnsureChannelReady(ApiRouteResolution resolution)
+    {
+        if (resolution.RouteMode == ApiRouteModes.EmbeddedWeb)
+        {
+            var token = AccountCredentials.ResolveWebUserToken(resolution.Account, _config);
+            if (string.IsNullOrWhiteSpace(token))
+                throw new InvalidOperationException(
+                    "请先在 API 管理中为 DeepSeek 添加账户并填写用户 Token（可从浏览器 LocalStorage 的 userToken 获取）。");
+            return;
+        }
+
+        var key = ApiProviderRegistry.ResolveApiKey(resolution.Provider) ?? _config.DeepSeekApiKey;
+        if (string.IsNullOrWhiteSpace(key))
+            throw new InvalidOperationException(
+                $"供应商「{resolution.Provider.DisplayName}」未配置 API Key，请在 API 管理中设置。");
+    }
+
     public void Dispose() => Stop();
+}
+
+file sealed class WebInjectWebChatAdapter : IAgentWebChat
+{
+    private readonly WebInjectService _web;
+
+    public WebInjectWebChatAdapter(WebInjectService web) => _web = web;
+
+    public async Task<WebChatResult> CompleteAsync(
+        IReadOnlyList<ChatMessage> messages,
+        string model,
+        bool thinking,
+        bool search,
+        IReadOnlyList<string> refFileIds,
+        bool allowToolCalls,
+        CancellationToken ct,
+        string? webUserToken = null,
+        string? webChatSessionId = null,
+        AgentChatOptions? options = null)
+    {
+        var prev = _web.AgentRefFileIds;
+        _web.AgentRefFileIds = refFileIds;
+        try
+        {
+            return await _web.WebChatAsync(
+                messages, model, thinking, search, ct, webUserToken, webChatSessionId, allowToolCalls);
+        }
+        finally
+        {
+            _web.AgentRefFileIds = prev;
+        }
+    }
+
+    public IAsyncEnumerable<WebChatStreamEvent> StreamAsync(
+        IReadOnlyList<ChatMessage> messages,
+        string model,
+        bool thinking,
+        bool search,
+        IReadOnlyList<string> refFileIds,
+        bool allowToolCalls,
+        CancellationToken ct,
+        string? webUserToken = null,
+        string? webChatSessionId = null,
+        AgentChatOptions? options = null)
+    {
+        var prev = _web.AgentRefFileIds;
+        _web.AgentRefFileIds = refFileIds;
+        return StreamCore(messages, model, thinking, search, allowToolCalls, ct, webUserToken, webChatSessionId, prev);
+    }
+
+    private async IAsyncEnumerable<WebChatStreamEvent> StreamCore(
+        IReadOnlyList<ChatMessage> messages,
+        string model,
+        bool thinking,
+        bool search,
+        bool allowToolCalls,
+        [EnumeratorCancellation] CancellationToken ct,
+        string? webUserToken,
+        string? webChatSessionId,
+        IReadOnlyList<string> prevRefIds)
+    {
+        try
+        {
+            await foreach (var ev in _web.WebChatStreamAsync(
+                               messages, model, thinking, search, ct, webUserToken, webChatSessionId, allowToolCalls))
+                yield return ev;
+        }
+        finally
+        {
+            _web.AgentRefFileIds = prevRefIds;
+        }
+    }
 }

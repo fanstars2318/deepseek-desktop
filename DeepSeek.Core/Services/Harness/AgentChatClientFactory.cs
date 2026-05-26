@@ -1,17 +1,17 @@
 using DeepSeekBrowser.Models;
+using DeepSeekBrowser.Services.ApiManagement;
 
 namespace DeepSeekBrowser.Services.Harness;
 
 public static class AgentChatClientFactory
 {
-    public static IAgentWebChat Create(AppConfig config, IAgentWebChat webChat)
-    {
-        if (UsesDirectApi(config))
-            return new OpenAiAgentChatClient(config);
-        return webChat;
-    }
+    public static IAgentWebChat Create(AppConfig config, IAgentWebChat webChat) =>
+        ApiRouteResolver.Resolve(config, webChat, config.AgentDefaultProviderId, config.Model).ChatClient;
 
     public static bool UsesDirectApi(AppConfig config) =>
+        !ApiRouteResolver.UsesEmbeddedWeb(config, config.AgentDefaultProviderId);
+
+    public static bool UsesDirectApiLegacy(AppConfig config) =>
         string.Equals(config.AgentInferenceMode, AgentInferenceModes.Api, StringComparison.OrdinalIgnoreCase)
         && !string.IsNullOrWhiteSpace(ResolveApiKey(config));
 

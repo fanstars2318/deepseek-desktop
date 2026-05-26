@@ -4,11 +4,12 @@ using DeepSeekBrowser.Services.Harness;
 
 namespace DeepSeek.Core.Tests.Harness;
 
-public sealed class HarnessOrchestratorCasualTests
+public sealed class HarnessOrchestratorCasualTests : TestConfigIsolation
 {
     [Fact]
     public async Task RunAsync_execute_hello_returns_natural_reply_not_blueprint()
     {
+        HarnessTestAccounts.EnsureDeepSeek();
         var chat = new CasualFakeChat();
         var orchestrator = new HarnessOrchestrator(
             chat,
@@ -38,6 +39,7 @@ public sealed class HarnessOrchestratorCasualTests
     [Fact]
     public async Task RunAsync_blueprint_hello_without_tools_returns_casual_not_forced_blueprint()
     {
+        HarnessTestAccounts.EnsureDeepSeek();
         var chat = new CasualFakeChat();
         var orchestrator = new HarnessOrchestrator(
             chat,

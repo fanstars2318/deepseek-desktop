@@ -1,5 +1,10 @@
 <Project>
   <PropertyGroup>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <!-- Report-only for unused members until phase 1 cleanup lands -->
+    <NoWarn>$(NoWarn);IDE0051;IDE0052;RCS1163</NoWarn>
     <_DeepSeekRepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)'))</_DeepSeekRepoRoot>
     <_DeepSeekDsdRoot>$([System.IO.Path]::GetFullPath('$(_DeepSeekRepoRoot)..\'))</_DeepSeekDsdRoot>
     <_DeepSeekBuildRoot Condition="'$(DEEPSEEK_BUILD_DIR)' != ''">$([System.IO.Path]::GetFullPath('$(DEEPSEEK_BUILD_DIR)'))</_DeepSeekBuildRoot>
@@ -7,4 +12,11 @@
     <BaseOutputPath>$(_DeepSeekBuildRoot)\$(MSBuildProjectName)\bin\</BaseOutputPath>
     <BaseIntermediateOutputPath>$(_DeepSeekBuildRoot)\$(MSBuildProjectName)\obj\</BaseIntermediateOutputPath>
   </PropertyGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.csproj' and '$(IsPackable)' != 'true'">
+    <PackageReference Include="Roslynator.Analyzers" Version="4.12.9">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
 </Project>

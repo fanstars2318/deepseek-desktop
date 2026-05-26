@@ -3,7 +3,7 @@ using DeepSeekBrowser.Services;
 
 namespace DeepSeek.Core.Tests;
 
-[Collection("Chat2ApiScope")]
+[Collection("DsdApiScope")]
 public sealed class InternalChatChannelTests
 {
     [Fact]
@@ -42,7 +42,7 @@ public sealed class InternalChatChannelTests
     public void ResolveTuiLlmBaseUrl_uses_agent_scoped_loopback_during_agent_run()
     {
         var cfg = new AppConfig { WebUserToken = "web-tok" };
-        using var scope = Chat2ApiFeatureScope.Begin(deepThinking: true, webSearch: false);
+        using var scope = DsdAgentApiScope.Begin(deepThinking: true, webSearch: false);
         Assert.Equal("http://127.0.0.1:17425/v1", InternalChatChannel.ResolveTuiLlmBaseUrl(cfg));
     }
 }

@@ -3,7 +3,8 @@ namespace DeepSeekBrowser.Services;
 public static class AppNavigation
 {
     public const string DeepSeekUrl = "https://chat.deepseek.com/";
-    public const int AgentUiBuild = 23;
+    /// <summary>内嵌 Agent / API 管理 UI 构建号；每次改 UI 资源后递增，启动时自动清 WebView 缓存。</summary>
+    public const int EmbeddedUiBuild = 32;
 
     public static string ChatSessionUrl(string? sessionId)
     {
@@ -14,20 +15,19 @@ public static class AppNavigation
     }
 
     public static string AgentPageUrl =>
-        $"https://ds-agent.local/index.html?build={AgentUiBuild}";
+        $"https://ds-agent.local/index.html?build={EmbeddedUiBuild}";
 
-    public const string Chat2ApiAgentEmbedUrl = "https://ds-chat2api.local/index.html#/providers";
-
-    public const string Chat2ApiConsoleUrl = "https://ds-chat2api.local/index.html";
+    public static string EmbeddedApiManagementUrl =>
+        $"https://dsdp-api.local/index.html?build={EmbeddedUiBuild}";
 
     public static bool IsAgentPage(string? source) =>
         !string.IsNullOrEmpty(source) &&
         source.Contains("ds-agent.local", StringComparison.OrdinalIgnoreCase) &&
-        !IsChat2ApiAgentPage(source);
+        !IsEmbeddedApiManagementPage(source);
 
-    public static bool IsChat2ApiAgentPage(string? source) =>
+    public static bool IsEmbeddedApiManagementPage(string? source) =>
         !string.IsNullOrEmpty(source) &&
-        (source.Contains("ds-chat2api.local", StringComparison.OrdinalIgnoreCase) ||
+        (source.Contains("dsdp-api.local", StringComparison.OrdinalIgnoreCase) ||
          (source.Contains("ds-agent.local", StringComparison.OrdinalIgnoreCase) &&
-          source.Contains("/chat2api/", StringComparison.OrdinalIgnoreCase)));
+          source.Contains("/dsd-api/", StringComparison.OrdinalIgnoreCase)));
 }

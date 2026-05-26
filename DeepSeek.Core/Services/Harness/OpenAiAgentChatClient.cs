@@ -211,10 +211,11 @@ public sealed class OpenAiAgentChatClient : IAgentWebChat, IDisposable
         AgentChatOptions? options,
         bool stream)
     {
+        var apiMessages = messages.Select(m => ToApiMessage(m, _config.AgentPrefixCacheEnabled)).ToList();
         var payload = new Dictionary<string, object?>
         {
             ["model"] = string.IsNullOrWhiteSpace(model) ? _config.Model : model,
-            ["messages"] = messages.Select(ToApiMessage).ToList(),
+            ["messages"] = apiMessages,
             ["stream"] = stream
         };
 
@@ -234,7 +235,32 @@ public sealed class OpenAiAgentChatClient : IAgentWebChat, IDisposable
         return payload;
     }
 
-    private static object ToApiMessage(ChatMessage message)
+    private static object ToApiMessage(ChatMessage message, bool prefixCache)
+    {
+        if (prefixCache
+            && string.Equals(message.Role, "system", StringComparison.OrdinalIgnoreCase)
+            && message.ToolCalls is not { Count: > 0 }
+            && message.ContentParts is not { Count: > 0 })
+        {
+            return new
+            {
+                role = "system",
+                content = new[]
+                {
+                    new
+                    {
+                        type = "text",
+                        text = message.Content ?? "",
+                        cache_control = new { type = "ephemeral" }
+                    }
+                }
+            };
+        }
+
+        return BuildApiMessage(message);
+    }
+
+    private static object BuildApiMessage(ChatMessage message)
     {
         if (string.Equals(message.Role, "tool", StringComparison.OrdinalIgnoreCase))
         {

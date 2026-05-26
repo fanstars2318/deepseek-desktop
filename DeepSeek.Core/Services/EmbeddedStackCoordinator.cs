@@ -12,7 +12,7 @@ public static class EmbeddedStackBridgeLinker
         IWebInjectBridge web,
         CancellationToken ct = default)
     {
-        Chat2ApiCompat.EnsureDefaultMappings(config);
+        DsdOpenAiCompat.EnsureDefaultMappings(config);
         AgentDesktopConfigSync.Apply(config);
 
         if (string.IsNullOrWhiteSpace(config.WebUserToken))
@@ -36,10 +36,10 @@ public static class EmbeddedStackBridgeLinker
             // ignore
         }
 
-        Chat2ApiHealth? health = null;
+        DsdApiHealth? health = null;
         try
         {
-            health = await web.ProbeChat2ApiHealthAsync(config.WebUserToken, InternalChatChannel.DesktopV1, ct)
+            health = await web.ProbeDsdApiHealthAsync(config.WebUserToken, InternalChatChannel.DesktopV1, ct)
                 .ConfigureAwait(false);
         }
         catch
@@ -47,6 +47,6 @@ public static class EmbeddedStackBridgeLinker
             // ignore
         }
 
-        Chat2ApiProviderService.WriteIntegrationFile(config, health);
+        DsdApiProviderService.WriteIntegrationFile(config, health);
     }
 }

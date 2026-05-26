@@ -3,23 +3,8 @@ using DeepSeekBrowser.Services;
 
 namespace DeepSeek.Core.Tests;
 
-public sealed class ConfigStoreTests : IDisposable
+public sealed class ConfigStoreTests : TestConfigIsolation
 {
-    private readonly string _tempDir;
-
-    public ConfigStoreTests()
-    {
-        _tempDir = Path.Combine(Path.GetTempPath(), "deepseek_desktop_tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_tempDir);
-        Environment.SetEnvironmentVariable(DeepSeekDesktopApp.ConfigDirEnvVar, _tempDir);
-    }
-
-    public void Dispose()
-    {
-        Environment.SetEnvironmentVariable(DeepSeekDesktopApp.ConfigDirEnvVar, null);
-        Environment.SetEnvironmentVariable(DeepSeekDesktopApp.LegacyConfigDirEnvVar, null);
-        try { Directory.Delete(_tempDir, recursive: true); } catch { /* ignore */ }
-    }
 
     [Fact]
     public void Load_returns_default_when_missing()

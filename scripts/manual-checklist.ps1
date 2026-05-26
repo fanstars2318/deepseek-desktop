@@ -30,7 +30,7 @@ Submodule（首次克隆）：
 3. 设置
    - 保存工作区、审批模式
    - 外部 API 默认关闭；开启后可生成 Key
-   - API 管理打开 Chat2API 控制台（非 DeepSeek 设置页）
+   - API 管理打开 DSD API 控制台（非 DeepSeek 设置页）
 
 4. 架构
    - 5111 端口不应监听（Get-NetTCPConnection -LocalPort 5111）

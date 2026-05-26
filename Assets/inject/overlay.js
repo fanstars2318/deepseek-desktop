@@ -176,7 +176,7 @@
       const style = document.createElement("style");
       style.id = "ds-native-style-fallback";
       style.textContent =
-        "#ds-toast-wrap{position:fixed!important;right:20px!important;bottom:24px!important;left:auto!important;top:auto!important;z-index:2147483647!important;max-width:360px!important;pointer-events:none!important}#ds-provider-mask{position:fixed!important;inset:0!important;z-index:2147483646!important;display:flex!important;align-items:center!important;justify-content:center!important;background:rgba(0,0,0,.4)!important}.ds-mode-menu-portal{position:fixed!important;z-index:2147483647!important;pointer-events:auto!important}#ds-desktop-overlay-root{position:fixed!important;inset:0!important;pointer-events:none!important;z-index:2147483647!important}#ds-agent-mode-float.ds-mode-float,#ds-agent-mode-float.ds-agent-mode-float,.ds-agent-mode-float-btn{position:fixed!important;top:10px!important;right:16px!important;left:auto!important;bottom:auto!important;z-index:2147483647!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:6px!important;height:34px!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important}.ds-mode-wrap{margin:0!important;padding:0!important}";
+        "#ds-toast-wrap{position:fixed!important;right:20px!important;bottom:24px!important;left:auto!important;top:auto!important;z-index:2147483647!important;max-width:360px!important;pointer-events:none!important}#ds-provider-mask{position:fixed!important;inset:0!important;z-index:2147483646!important;display:flex!important;align-items:center!important;justify-content:center!important;background:rgba(0,0,0,.4)!important}.ds-mode-menu-portal{position:fixed!important;z-index:2147483647!important;pointer-events:auto!important}#ds-desktop-overlay-root{position:fixed!important;inset:0!important;pointer-events:none!important;z-index:2147483647!important}#ds-settings-top{position:fixed!important;top:10px!important;right:16px!important;left:auto!important;bottom:auto!important;z-index:2147483647!important;width:34px!important;height:34px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;border-radius:8px!important;border:1px solid #e5e7eb!important;background:rgba(255,255,255,.97)!important;color:#374151!important;cursor:pointer!important;pointer-events:auto!important;box-shadow:0 4px 16px rgba(0,0,0,.06)!important}#ds-agent-mode-float.ds-mode-float,#ds-agent-mode-float.ds-agent-mode-float,.ds-agent-mode-float-btn{position:fixed!important;top:auto!important;left:auto!important;bottom:96px!important;right:20px!important;z-index:2147483647!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:6px!important;height:34px!important;min-width:88px!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important}.ds-mode-wrap{margin:0!important;padding:0!important}";
       appendToHead(style);
     }
   }
@@ -217,8 +217,46 @@
     pinModeFloaterStyles(btn);
   }
 
-  /** 官网 SPA 重绘后仍保持右上角模式按钮可见、可点（与 Agent 顶栏 #mode-float 对齐） */
+  function measureComposerFloaterAnchor() {
+    const input = findInput();
+    let bottom = 96;
+    let right = 20;
+    if (input) {
+      const r = input.getBoundingClientRect();
+      if (r.height > 0 && r.width > 0) {
+        bottom = Math.max(72, window.innerHeight - r.top + 12);
+        right = Math.max(16, window.innerWidth - r.right);
+      }
+    }
+    return { bottom, right };
+  }
+
+  /** 输入框右下角：与 Agent 页 #mode-float 对齐 */
+  function pinComposerModeFloater(btn) {
+    if (!btn) return;
+    const { bottom, right } = measureComposerFloaterAnchor();
+    btn.style.setProperty("position", "fixed", "important");
+    btn.style.setProperty("top", "auto", "important");
+    btn.style.setProperty("bottom", bottom + "px", "important");
+    btn.style.setProperty("right", right + "px", "important");
+    btn.style.setProperty("left", "auto", "important");
+    btn.style.setProperty("z-index", "2147483647", "important");
+    btn.style.setProperty("display", "inline-flex", "important");
+    btn.style.setProperty("align-items", "center", "important");
+    btn.style.setProperty("justify-content", "center", "important");
+    btn.style.setProperty("min-width", "88px", "important");
+    btn.style.setProperty("height", "34px", "important");
+    btn.style.setProperty("box-sizing", "border-box", "important");
+    btn.style.setProperty("visibility", "visible", "important");
+    btn.style.setProperty("opacity", "1", "important");
+    btn.style.setProperty("pointer-events", "auto", "important");
+  }
+
   function pinModeFloaterStyles(btn) {
+    pinComposerModeFloater(btn);
+  }
+
+  function pinTopRightSettingsBtn(btn) {
     if (!btn) return;
     btn.style.setProperty("position", "fixed", "important");
     btn.style.setProperty("top", "10px", "important");
@@ -226,10 +264,55 @@
     btn.style.setProperty("left", "auto", "important");
     btn.style.setProperty("bottom", "auto", "important");
     btn.style.setProperty("z-index", "2147483647", "important");
-    btn.style.setProperty("display", "inline-flex", "important");
-    btn.style.setProperty("visibility", "visible", "important");
-    btn.style.setProperty("opacity", "1", "important");
     btn.style.setProperty("pointer-events", "auto", "important");
+  }
+
+  function repositionModeFloater() {
+    const btn = document.getElementById("ds-agent-mode-float");
+    if (btn && btn.isConnected) pinComposerModeFloater(btn);
+  }
+
+  function ensureModeFloaterRepositionHooks() {
+    if (window.__dsModeFloaterReposBound) return;
+    window.__dsModeFloaterReposBound = true;
+    window.addEventListener("resize", repositionModeFloater);
+    setInterval(repositionModeFloater, 500);
+  }
+
+  const TOP_SETTINGS_ICON =
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+
+  function ensureTopRightSettings() {
+    if (!shouldShowModeFloater()) {
+      document.getElementById("ds-settings-top")?.remove();
+      return null;
+    }
+    ensureStyles();
+    let btn = document.getElementById("ds-settings-top");
+    if (btn && !btn.isConnected) {
+      btn.remove();
+      btn = null;
+    }
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.type = "button";
+      btn.id = "ds-settings-top";
+      btn.className = "ds-top-settings-btn";
+      btn.setAttribute("data-ds-top-settings", "1");
+      btn.setAttribute("aria-label", "菜单");
+      btn.title = "菜单";
+      btn.innerHTML = TOP_SETTINGS_ICON;
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        post("openSettings", {});
+      });
+    }
+    const host = ensureModeFloaterHost();
+    if (host && btn.parentElement !== host) host.appendChild(btn);
+    else if (!btn.isConnected) (domRoot() || document.body).appendChild(btn);
+    pinTopRightSettingsBtn(btn);
+    return btn;
   }
 
   function applyBtnStyle(btn, on) {
@@ -386,6 +469,7 @@
 
   function teardownChatPageOverrides() {
     removeToolbarParts();
+    document.getElementById("ds-settings-top")?.remove();
     document.getElementById("ds-dock-bar")?.remove();
     dockInjected = false;
     toolbarInjected = false;
@@ -418,7 +502,12 @@
       label.textContent = ui.label;
       btn.dataset.dsOn = ui.highlight ? "1" : "0";
       btn.classList.toggle("ds-on", !!ui.highlight);
-      pinModeFloaterStyles(btn);
+      pinComposerModeFloater(btn);
+      const labelEl = getFloaterLabel(btn);
+      if (labelEl) {
+        labelEl.style.minWidth = "42px";
+        labelEl.style.textAlign = "center";
+      }
       btn.setAttribute("aria-label", ui.title);
       btn.title = ui.title;
       bindFloaterClick(btn);
@@ -740,7 +829,7 @@
 
     const status = document.createElement("div");
     status.style.cssText = "font-size:13px;color:#6b7280;margin-bottom:8px;";
-    status.textContent = "Agent 正在执行（Chat2API + MCP）…";
+    status.textContent = "Agent 正在执行（API 管理 + MCP）…";
     agentChat.statusEl = status;
 
     const answer = document.createElement("div");
@@ -887,6 +976,7 @@
     bindFloaterClick(btn);
 
     attachFloaterToPortal(btn);
+    ensureModeFloaterRepositionHooks();
     syncWorkModeUi();
     return btn;
   }
@@ -1023,7 +1113,7 @@
     const desc = document.createElement("div");
     desc.style.cssText = "font-size:13px;color:#6b7280;line-height:1.5;margin-bottom:12px";
     desc.textContent =
-      "经本地 Chat2API 使用网页会话；Agent 由进程内 DSD Harness 驱动。";
+      "经本地 API 管理使用网页会话；Agent 由进程内 DSD Harness 驱动。";
     const stats = document.createElement("div");
     stats.style.cssText = "font-size:12px;color:#374151;margin-bottom:12px;line-height:1.8";
     stats.textContent =
@@ -1075,7 +1165,7 @@
       titleRow,
       desc,
       stats,
-      fieldRow("Chat2API Base URL", baseUrl, baseUrl),
+      fieldRow("API 管理 Base URL", baseUrl, baseUrl),
       fieldRow("API Key", masked, apiKey)
     );
     if (info.harnessRuntimeUrl) card.append(fieldRow("DSD Harness", info.harnessRuntimeUrl, info.harnessRuntimeUrl));
@@ -1258,8 +1348,8 @@
       appendToBody(hint);
     }
     hint.textContent = isAgentLikeMode()
-      ? "右上角为 Agent 模式，发送走 Chat2API + MCP"
-      : "右上角为普通模式，发送走网页对话";
+      ? "右下角为 Agent 模式，发送走 API 管理 + MCP"
+      : "右下角为普通模式，发送走网页对话";
   }
 
   function repositionDock() {
@@ -1291,7 +1381,9 @@
 
     if (shouldKeepNativeDeepSeekUi()) {
       teardownChatPageOverrides();
+      ensureTopRightSettings();
       mountAgentModeFloater();
+      ensureModeFloaterRepositionHooks();
       bindWorkModeClient();
       if (!window.__dsNativeReadyPosted) {
         window.__dsNativeReadyPosted = true;

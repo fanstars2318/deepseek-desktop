@@ -24,10 +24,9 @@
           <span class="ds-brand-text">deepseek</span>
         </a>
         <div class="ds-sidebar-head-actions">
-          <button type="button" class="ds-icon-btn" id="btn-sidebar-settings" aria-label="设置" aria-haspopup="menu" aria-expanded="false" title="设置">
+          <button type="button" class="ds-icon-btn" id="btn-sidebar-settings" aria-label="菜单" aria-haspopup="menu" aria-expanded="false" title="菜单">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+              <path d="M4 7h16M4 12h16M4 17h16"/>
             </svg>
           </button>
         </div>
@@ -63,7 +62,7 @@
     </aside>
 
     <main class="ds-main">
-      <header class="ds-context-bar" id="context-bar" aria-label="工作区与运行环境">
+      <div class="ds-top-tray" id="top-tray" aria-label="运行环境">
         <button type="button" class="ds-ctx-chip" id="ctx-workspace" aria-haspopup="menu" aria-expanded="false">
           <svg class="ds-ctx-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
           <span class="ds-ctx-label" id="ctx-workspace-label">工作区</span>
@@ -73,13 +72,17 @@
           <span class="ds-ctx-label" id="ctx-mode-label">Execute</span>
           <svg class="ds-ctx-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
         </button>
-        <button type="button" class="ds-mode-float ds-on" id="mode-float" data-ds-workmode-floater="1" title="当前为 Agent 模式，点击切换到普通对话">
-          <span class="ds-mode-float-icon" aria-hidden="true">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2a4 4 0 0 1 4 4v1h1a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V10a3 3 0 0 1 3-3h1V6a4 4 0 0 1 4-4z"/></svg>
-          </span>
-          <span id="mode-float-label">Agent</span>
+        <button type="button" class="ds-ctx-chip ds-ctx-chip-model" id="ctx-model" aria-haspopup="menu" aria-expanded="false" title="模型选择">
+          <svg class="ds-ctx-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 20h8M12 18v2"/></svg>
+          <span class="ds-ctx-label" id="ctx-model-label">Auto</span>
+          <svg class="ds-ctx-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
         </button>
-      </header>
+        <button type="button" class="ds-icon-btn ds-top-settings" id="btn-top-settings" aria-label="菜单" aria-haspopup="menu" aria-expanded="false" title="菜单">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 7h16M4 12h16M4 17h16"/>
+          </svg>
+        </button>
+      </div>
 
       <div class="ds-ctx-backdrop" id="ctx-backdrop" hidden aria-hidden="true"></div>
       <div class="ds-ctx-menu" id="ctx-menu" hidden role="menu"></div>
@@ -110,10 +113,16 @@
 
       <footer class="ds-composer-wrap">
         <div class="ds-login-banner" id="login-banner" hidden>
-          <span>请先在「普通对话」中登录 DeepSeek</span>
-          <button type="button" class="ds-text-btn" id="btn-login-goto">去登录</button>
+          <span>请先在 API 管理中添加 DeepSeek 账户（手动粘贴 userToken）</span>
+          <button type="button" class="ds-text-btn" id="btn-login-goto">打开 API 管理</button>
         </div>
         <div class="ds-composer-outer">
+          <button type="button" class="ds-mode-float ds-composer-mode-float ds-on" id="mode-float" data-ds-workmode-floater="1" title="当前为 Agent 模式，点击切换到普通对话">
+            <span class="ds-mode-float-icon" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2a4 4 0 0 1 4 4v1h1a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V10a3 3 0 0 1 3-3h1V6a4 4 0 0 1 4-4z"/></svg>
+            </span>
+            <span id="mode-float-label">Agent</span>
+          </button>
           <div class="ds-slash-palette" id="slash-palette" hidden role="listbox" aria-label="命令与工具"></div>
           <div class="ds-composer">
             <div class="ds-file-chips" id="file-chips" hidden></div>
@@ -145,16 +154,21 @@
       <span class="ds-status-dot" id="login-dot"></span>
       <span id="login-label">检测中…</span>
     </div>
-    <button type="button" class="ds-sidebar-link" id="btn-chat2api" role="menuitem" title="API 管理（供应商、模型、API Key）">
+    <button type="button" class="ds-sidebar-link" id="btn-api-management" role="menuitem" title="API 管理（供应商、模型、API Key）">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h10M4 17h16"/><circle cx="18" cy="12" r="3"/></svg>
       API 管理
     </button>
     <button type="button" class="ds-sidebar-link" id="btn-automations" role="menuitem" title="常驻自动化 Agent">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="4"/></svg>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/>
+      </svg>
       Automations
     </button>
     <button type="button" class="ds-sidebar-link" id="btn-mcp" role="menuitem" title="DeepSeek 设置（Agent、MCP、工作区）">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
       设置
     </button>
   </div>
@@ -198,6 +212,7 @@
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
   <script src="message-render.js?v=2"></script>
   <script src="https://ds-inject.local/work-mode-client.js"></script>
-  <script src="agent-app.js?v=25"></script>
+  <script src="modules/embed-url.js"></script>
+  <script src="agent-app.js?v=26"></script>
 </body>
 </html>

@@ -33,6 +33,8 @@ public partial class MainWindow : System.Windows.Window
         _tray = new TrayIconService(this, ExitApplication);
     }
 
+    internal TrayIconService? GetTrayService() => _tray;
+
     private void ApplyWindowIconInternal()
     {
         var candidates = new[]
@@ -59,6 +61,7 @@ public partial class MainWindow : System.Windows.Window
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        App.RegisterMainWindowActivation(this);
         ApplyWindowIconInternal();
 
         try
@@ -72,6 +75,10 @@ public partial class MainWindow : System.Windows.Window
             await WebView.EnsureCoreWebView2Async(env);
             WebView.DefaultBackgroundColor = WebViewBackground;
             AgentWebView.DefaultBackgroundColor = WebViewBackground;
+
+            var webProfile = WebView.CoreWebView2?.Profile;
+            if (webProfile is not null)
+                await EmbeddedUiCacheService.EnsureFreshUiAsync(webProfile);
 
             _apiBridgeHost = new WebChatBridgeHost(BridgeWebView);
             await _apiBridgeHost.AttachAndNavigateAsync(env);
@@ -526,7 +533,7 @@ public partial class MainWindow : System.Windows.Window
                     {
                         if (_agentHost is null || _webHost is null) return;
                         WorkModeTrace.Write("AgentSelfTest: web ready, warming bridge");
-                        await _agentHost.WarmChat2ApiBridgeAsync();
+                        await _agentHost.WarmDsdApiBridgeAsync();
                         await _agentHost.EnsureEmbeddedStackLinkedAsync();
                         _agentHost.ReloadConfig();
                         var cfg = ConfigStore.Load();
@@ -580,7 +587,7 @@ public partial class MainWindow : System.Windows.Window
                     {
                         if (_agentHost is null || _webHost is null) return;
                         WorkModeTrace.Write("AgentTaskTest: web ready, warming bridge");
-                        await _agentHost.WarmChat2ApiBridgeAsync();
+                        await _agentHost.WarmDsdApiBridgeAsync();
                         await _agentHost.EnsureEmbeddedStackLinkedAsync();
                         _agentHost.ReloadConfig();
                         var cfg = ConfigStore.Load();

@@ -4,11 +4,12 @@ using DeepSeekBrowser.Services.Harness;
 
 namespace DeepSeek.Core.Tests.Harness;
 
-public sealed class HarnessOrchestratorTests
+public sealed class HarnessOrchestratorTests : TestConfigIsolation
 {
     [Fact]
     public async Task RunAsync_blueprint_workflow_finalizes_without_approval()
     {
+        HarnessTestAccounts.EnsureDeepSeek();
         var chat = new PlanModeFakeChat();
         var mcp = new McpHub();
         var approval = new PermissionGate(
@@ -85,6 +86,7 @@ public sealed class HarnessOrchestratorTests
     [Fact]
     public async Task RunAsync_executes_tool_then_returns_final_answer()
     {
+        HarnessTestAccounts.EnsureDeepSeek();
         var chat = new FakeAgentWebChat();
         var mcp = new McpHub();
         var orchestrator = new HarnessOrchestrator(chat, mcp, HarnessTestPermission.AllowAll());

@@ -27,10 +27,9 @@ Write-Host "  OK P2 Harness modules present"
 
 $legacyTui = Join-Path $PublishDir "Assets\tools\deepseek-tui.exe"
 if (Test-Path $legacyTui) {
-    Write-Warning "legacy deepseek-tui.exe still bundled (not required for native Harness)"
-} else {
-    Write-Host "  OK no deepseek-tui.exe required"
+    throw "legacy deepseek-tui.exe must not be published"
 }
+Write-Host "  OK no deepseek-tui.exe required"
 
 $agentApp = Join-Path $PublishDir "Assets\agent\agent-app.js"
 if (-not (Test-Path $agentApp)) { throw "missing agent-app.js" }
@@ -44,7 +43,7 @@ $cfgPath = Join-Path $env:LOCALAPPDATA "deepseek_desktop\config.json"
 if (Test-Path $cfgPath) {
     $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
     if ($null -ne $cfg.UseNativeHarness -and $cfg.UseNativeHarness -eq $false) {
-        Write-Warning "UseNativeHarness=false in user config (legacy TUI path disabled in build)"
+        Write-Host "  OK UseNativeHarness=false in user config (native Harness still used)"
     }
 }
 

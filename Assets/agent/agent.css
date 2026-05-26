@@ -233,17 +233,32 @@ body {
   flex-shrink: 0;
 }
 
-/* —— 顶栏上下文（Cursor 面包屑下拉） —— */
-.ds-context-bar {
-  flex-shrink: 0;
+/* —— 主区右上角：工作区 / 模式 / 模型 + 菜单 —— */
+.ds-top-tray {
+  position: absolute;
+  top: 10px;
+  right: 16px;
+  z-index: 6;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 10px 16px 6px;
-  border-bottom: 1px solid var(--ds-border);
-  background: var(--ds-bg);
-  z-index: 5;
+  justify-content: flex-end;
+  gap: 2px;
+  max-width: min(92vw, 560px);
+  pointer-events: none;
+}
+
+.ds-top-tray > * {
+  pointer-events: auto;
+}
+
+.ds-top-settings {
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+.ds-sidebar-head-actions #btn-sidebar-settings {
+  display: none;
 }
 
 .ds-ctx-chip {
@@ -267,6 +282,16 @@ body {
 .ds-ctx-chip[aria-expanded="true"] {
   background: rgba(0, 0, 0, 0.05);
   color: var(--ds-title);
+}
+
+.ds-ctx-chip-model.ds-model-auto-on .ds-ctx-label {
+  color: var(--ds-accent, #2563eb);
+  font-weight: 600;
+}
+
+.ds-ctx-menu-item.ds-ctx-auto-row.is-active .ds-ctx-menu-item-title {
+  color: var(--ds-accent, #2563eb);
+  font-weight: 600;
 }
 
 .ds-ctx-icon {
@@ -801,19 +826,14 @@ body.ds-embedded-open .ds-composer-wrap {
   visibility: hidden;
 }
 
-/* 顶栏右侧模式切换（与官网 chat 页浮钮视觉一致） */
+/* 模式切换（与官网 chat 页浮钮视觉一致） */
 .ds-mode-float {
-  position: static;
-  margin-left: auto;
-  flex-shrink: 0;
-  align-self: center;
-  z-index: 6;
-  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   height: 34px;
+  min-width: 88px;
   padding: 0 14px;
   border-radius: var(--ds-radius-pill);
   border: 1px solid var(--ds-border);
@@ -866,6 +886,18 @@ body.ds-embedded-open .ds-composer-wrap {
   line-height: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  text-align: center;
+}
+
+.ds-composer-mode-float {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 25;
+  margin: 0;
+  pointer-events: auto;
 }
 
 .ds-mode-float.ds-on .ds-mode-float-icon {
@@ -1304,6 +1336,7 @@ body.ds-embedded-open .ds-composer-wrap {
 
 /* —— 底部输入（官网圆角输入框） —— */
 .ds-composer-wrap {
+  position: relative;
   flex-shrink: 0;
   padding: 0 16px 20px;
   width: 100%;

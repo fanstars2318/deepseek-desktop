@@ -1,0 +1,306 @@
+(function () {
+  "use strict";
+  if (window.__dsUiTrim) return;
+  window.__dsUiTrim = true;
+
+  var HOME_HASH = "#/";
+  var HIDDEN_NAV = /^(代理设置|Proxy Settings|API Keys|API 密钥|关于|About)$/i;
+  var HIDDEN_PROXY_TAB = /^(状态监控|基础配置|高级配置|Status Monitoring|Basic Configuration|Advanced Configuration)$/i;
+  var PROXY_TEXT = /代理服务|Proxy service|启动代理|停止代理|Start Proxy|Stop Proxy|proxyPort/i;
+
+  function hide(el) {
+    if (!el || el.getAttribute("data-ds-hidden") === "1") return;
+    el.setAttribute("data-ds-hidden", "1");
+    el.style.setProperty("display", "none", "important");
+  }
+
+  function navRoot(el) {
+    return (
+      el.closest("[data-sidebar='menu-button']") ||
+      el.closest(".sidebar-nav-item") ||
+      el.closest("li") ||
+      el.parentElement ||
+      el
+    );
+  }
+
+  function isAboutLocation() {
+    var hash = location.hash || "";
+    var path = location.pathname || "";
+    return (
+      hash.indexOf("#/about") === 0 ||
+      /#\/about(\/|$|\?)/.test(hash) ||
+      /\/about(\/|$|\?)/.test(path)
+    );
+  }
+
+  function ensureEmbeddedRoute() {
+    var hash = location.hash || "";
+    if (isAboutLocation()) {
+      location.replace(HOME_HASH);
+      return;
+    }
+    if (!hash || hash === "#" || hash.indexOf("#/proxy") === 0) {
+      if (hash !== HOME_HASH) location.replace(HOME_HASH);
+      return;
+    }
+    if (hash.indexOf("#/api-keys") === 0) {
+      location.replace(HOME_HASH);
+    }
+  }
+
+  var ABOUT_PAGE = /DSD API|Multi-platform AI Service|检查更新|Check for Updates|Application Updates|GitHub Repository|Report Issue|LINKS/i;
+
+  function hideAboutPage() {
+    if (isAboutLocation()) location.replace(HOME_HASH);
+    document.querySelectorAll("main").forEach(function (main) {
+      var text = (main.textContent || "").slice(0, 400);
+      if (ABOUT_PAGE.test(text)) hide(main);
+    });
+  }
+
+  function hideSidebarNav() {
+    document.querySelectorAll(".glass-sidebar a, .glass-sidebar button, aside a, aside button").forEach(function (el) {
+      var href = (el.getAttribute("href") || "") + " " + (el.getAttribute("to") || "");
+      var text = (el.textContent || "").replace(/\s+/g, " ").trim();
+      if (/\/proxy|#\/proxy/i.test(href)) hide(navRoot(el));
+      if (HIDDEN_NAV.test(text)) hide(navRoot(el));
+    });
+  }
+
+  function hideProxyTabsAndPanels() {
+    if ((location.hash || "").indexOf("#/proxy") !== 0) return;
+    document.querySelectorAll("[role='tab'], button, a").forEach(function (el) {
+      var text = (el.textContent || "").replace(/\s+/g, " ").trim();
+      if (HIDDEN_PROXY_TAB.test(text)) hide(el);
+    });
+    document.querySelectorAll("main h1, main h2, main h3, .glass-card, [class*='glass-card']").forEach(function (el) {
+      var text = (el.textContent || "").replace(/\s+/g, " ").slice(0, 120);
+      if (/^代理设置$|^Proxy Settings$/i.test(text.trim())) {
+        var page = el.closest("main") || document.querySelector("main");
+        if (page && (location.hash || "").indexOf("#/proxy") === 0) hide(page);
+      }
+    });
+  }
+
+  function hideTopbarProxyControls() {
+    document.querySelectorAll(".glass-topbar button, .glass-topbar .rounded-full, .glass-topbar [class*='toggle']").forEach(function (el) {
+      var text = (el.textContent || "").replace(/\s+/g, " ");
+      if (PROXY_TEXT.test(text) || /127\.0\.0\.1:\d+/.test(text)) hide(el);
+      if (el.classList && (el.classList.contains("proxy-toggle-active") || el.classList.contains("proxy-toggle-btn-active"))) {
+        hide(el.closest(".rounded-full") || el.parentElement || el);
+      }
+    });
+  }
+
+  function hideDashboardEmbeddedOnly() {
+    var hash = location.hash || "";
+    if (hash !== "#/" && hash !== "#" && hash.indexOf("#/dashboard") !== 0) return;
+
+    document.querySelectorAll(".glass-card, .glass-card-hover, [class*='glass-card']").forEach(function (card) {
+      var text = (card.textContent || "").replace(/\s+/g, " ");
+      if (/快捷操作|Quick Actions/i.test(text)) hide(card);
+      if (/代理状态|Proxy Status/i.test(text)) hide(card);
+      if (/启动代理|停止代理|Start Proxy|Stop Proxy/i.test(text)) hide(card);
+    });
+
+    document.querySelectorAll("main > div > div, main .rounded-lg").forEach(function (el) {
+      var text = (el.textContent || "").replace(/\s+/g, " ");
+      if (/browserMode|浏览器模式|Browser Mode/i.test(text)) hide(el);
+    });
+  }
+
+  function hideSettingsProxySections() {
+    document.querySelectorAll("label, h3, h4, p, span, div").forEach(function (el) {
+      var t = (el.textContent || "").trim();
+      if (/^自动启动代理$|^Auto[- ]?start Proxy$/i.test(t)) {
+        hide(el.closest("[class*='flex']") || el.closest(".grid") || el.parentElement);
+      }
+      if (/^网络代理$|^Network Proxy$|^OAuth 登录代理$/i.test(t)) {
+        hide(el.closest("section") || el.closest("[class*='card']") || el.parentElement?.parentElement);
+      }
+      if (t === "127.0.0.1" || /^127\.0\.0\.1:\d+$/.test(t)) hide(el.closest("motion.div") || el.parentElement);
+    });
+  }
+
+  function isDsdApiHostPage() {
+    var h = (location.hostname || "").toLowerCase();
+    var p = location.pathname || "";
+    return h === "dsdp-api.local" || (h === "ds-agent.local" && /\/dsd-api\//i.test(p));
+  }
+
+  function injectAgentBackButton() {
+    if (!isDsdApiHostPage()) return;
+    if (window.parent !== window) return;
+    if (document.getElementById("ds-agent-back-btn")) return;
+    var btn = document.createElement("button");
+    btn.id = "ds-agent-back-btn";
+    btn.type = "button";
+    btn.textContent = "← 返回 Agent";
+    btn.style.cssText =
+      "position:fixed;top:10px;left:12px;z-index:99999;padding:8px 14px;border-radius:8px;" +
+      "border:1px solid #c7d2fe;background:#fff;color:#1e40af;font-size:13px;cursor:pointer;" +
+      "box-shadow:0 2px 8px rgba(0,0,0,.08);";
+    btn.addEventListener("click", function () {
+      var body = JSON.stringify({ type: "openAgentFromApiManagement", __dsEmbed: true });
+      if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(body);
+      } else if (window.parent && window.parent !== window) {
+        window.parent.postMessage(body, "*");
+      }
+    });
+    document.body.appendChild(btn);
+  }
+
+  function removeStackBar() {
+    var bar = document.getElementById("ds-desktop-stack-bar");
+    if (bar) bar.remove();
+    document.querySelectorAll(".ds-desktop-stack-bar").forEach(function (el) {
+      el.remove();
+    });
+    var banner = document.getElementById("ds-embedded-banner");
+    if (banner) banner.remove();
+  }
+
+  function hideSettingsManagementApiTab() {
+    document.querySelectorAll("[role='tab']").forEach(function (tab) {
+      var val = tab.getAttribute("value") || tab.getAttribute("data-value") || "";
+      var text = (tab.textContent || "").replace(/\s+/g, " ").trim();
+      if (val === "managementApi" || /^管理\s*API$/i.test(text) || /^Manage\s*API$/i.test(text)) {
+        hide(tab);
+      }
+    });
+    document.querySelectorAll("[role='tabpanel'], [data-state]").forEach(function (panel) {
+      var val = panel.getAttribute("value") || panel.getAttribute("data-value") || "";
+      if (val === "managementApi") hide(panel);
+    });
+    document.querySelectorAll("[role='tablist']").forEach(function (list) {
+      var visible = Array.prototype.filter.call(
+        list.querySelectorAll("[role='tab']"),
+        function (t) {
+          return t.getAttribute("data-ds-hidden") !== "1";
+        }
+      );
+      if (visible.length === 4) {
+        list.classList.remove("grid-cols-5");
+        list.classList.add("grid-cols-4");
+      }
+    });
+    if ((location.hash || "").indexOf("managementApi") >= 0) {
+      location.replace("#/settings/appearance");
+    }
+  }
+
+  function hideProviderSupportMatrix() {
+    document.querySelectorAll("label").forEach(function (el) {
+      var t = (el.textContent || "").trim();
+      if (t === "供应商支持" || t === "Provider support") {
+        hide(el.closest(".space-y-2") || el.parentElement);
+      }
+    });
+  }
+
+  function hideSettingsTrayAndNotifications() {
+    document.querySelectorAll(".glass-card, [class*='glass-card'], section").forEach(function (card) {
+      var text = (card.textContent || "").replace(/\s+/g, " ");
+      if (
+        /关闭行为|Close Behavior/i.test(text) &&
+        (/最小化到托盘|Minimize to Tray/i.test(text) || /关闭窗口时/i.test(text))
+      ) {
+        hide(card);
+      }
+      if (
+        (/^通知$|Notifications/i.test((card.querySelector("h3,h4,[class*='CardTitle']") || card).textContent || "") ||
+          /配置系统通知|notification settings/i.test(text)) &&
+        /启用通知|Enable Notifications/i.test(text)
+      ) {
+        hide(card);
+      }
+    });
+    document.querySelectorAll("label, h3, h4").forEach(function (el) {
+      var t = (el.textContent || "").trim();
+      if (t === "关闭行为" || t === "Close Behavior" || t === "通知" || t === "Notifications") {
+        var card = el.closest(".glass-card") || el.closest("[class*='glass-card']") || el.closest("section");
+        if (card) hide(card);
+      }
+    });
+  }
+
+  function hideLanguageControls() {
+    try {
+      localStorage.setItem("i18nextLng", "zh-CN");
+    } catch (_) {}
+    document.querySelectorAll(".glass-topbar button").forEach(function (btn) {
+      if (btn.querySelector(".lucide-languages, svg.lucide-languages")) hide(btn);
+    });
+    document.querySelectorAll(".glass-card, [class*='glass-card'], section").forEach(function (card) {
+      var text = (card.textContent || "").replace(/\s+/g, " ");
+      if (/设置应用程序的显示语言|Set the display language of the application/i.test(text)) {
+        hide(card);
+      }
+    });
+    document.querySelectorAll("label, p, h3, h4").forEach(function (el) {
+      var t = (el.textContent || "").trim();
+      if (t === "语言" || t === "Language") {
+        var card = el.closest(".glass-card") || el.closest("[class*='glass-card']") || el.closest("section");
+        if (card && /设置应用程序的显示语言|Set the display language|简体中文|Simplified Chinese/i.test(card.textContent || "")) {
+          hide(card);
+        }
+      }
+    });
+  }
+
+  function trimOnce() {
+    ensureEmbeddedRoute();
+    hideAboutPage();
+    hideLanguageControls();
+    hideSettingsManagementApiTab();
+    hideProviderSupportMatrix();
+    hideSidebarNav();
+    hideProxyTabsAndPanels();
+    hideTopbarProxyControls();
+    hideDashboardEmbeddedOnly();
+    hideSettingsProxySections();
+    hideSettingsTrayAndNotifications();
+    injectAgentBackButton();
+    removeStackBar();
+
+    document.querySelectorAll('a[href="/proxy"], a[href="#/proxy"], a[href="/about"], a[href="#/about"], [href*="/proxy"], [href*="/about"]').forEach(function (a) {
+      hide(navRoot(a));
+    });
+  }
+
+  function schedule() {
+    trimOnce();
+    var left = 40;
+    function tick() {
+      trimOnce();
+      if (--left > 0) setTimeout(tick, 350);
+    }
+    tick();
+  }
+
+  window.addEventListener("hashchange", function () {
+    ensureEmbeddedRoute();
+    setTimeout(trimOnce, 0);
+  });
+
+  function startObserver() {
+    var root = document.getElementById("root");
+    if (!root || root.__dsTrimObs) return;
+    root.__dsTrimObs = true;
+    new MutationObserver(function () {
+      trimOnce();
+    }).observe(root, { childList: true, subtree: true });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function () {
+      schedule();
+      startObserver();
+    });
+  } else {
+    schedule();
+    startObserver();
+  }
+})();

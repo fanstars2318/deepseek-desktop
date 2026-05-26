@@ -88,11 +88,27 @@ public sealed class HarnessParallelExploreOrchestrator
         }
 
         callbacks.OnLog?.Invoke("Parallel explore: synthesizing…");
+        var synthRole = "plan";
+        if (request.Config.EnableDynamicGroupChat && AgentChatClientFactory.UsesDirectApi(request.Config))
+        {
+            try
+            {
+                using var chat = new OpenAiAgentChatClient(request.Config);
+                synthRole = await HarnessGroupChatPlanner.PickNextRoleAsync(
+                    chat, request.Config, request.Prompt, sb.ToString(), ct);
+                callbacks.OnLog?.Invoke("Dynamic group chat picked synthesizer role: " + synthRole);
+            }
+            catch
+            {
+                // keep plan
+            }
+        }
+
         var synth = await _subAgents.RunAsync(
             new HarnessSubAgentRequest
             {
                 Config = request.Config,
-                Role = "plan",
+                Role = synthRole,
                 Task =
                     "Merge the parallel explorer reports into one actionable brief for the lead agent: " +
                     "summary, key paths, open questions, suggested next steps.",

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DeepSeekBrowser.Models;
+using DeepSeekBrowser.Services.Composio;
 using DeepSeekBrowser.Services.Harness.Sandbox;
 
 namespace DeepSeekBrowser.Services.Harness;
@@ -76,6 +77,11 @@ public sealed class HarnessToolExecutor
             if (IsSpecialTool(toolName))
             {
                 var text = await ExecuteSpecialAsync(toolName, argumentsJson, config, workspaceRoot, ct);
+                result = HarnessToolExecuteResult.FromOutput(text);
+            }
+            else if (ComposioToolBridge.IsComposioTool(toolName))
+            {
+                var text = await ComposioToolBridge.ExecuteAsync(config, toolName, argumentsJson, ct);
                 result = HarnessToolExecuteResult.FromOutput(text);
             }
             else if (BuiltinToolExecutor.IsBuiltin(toolName))
@@ -256,6 +262,7 @@ public sealed class HarnessToolExecutor
     {
         var n = toolName.ToLowerInvariant();
         return n is "read_file" or "read" or "list_dir" or "grep" or "glob" or "image_analyze"
-            or "delegate_agent" or "parallel_explore" or "askuserquestion" or "updateplan" or "websearch";
+            or "delegate_agent" or "parallel_explore" or "askuserquestion" or "updateplan" or "websearch"
+            || ComposioToolBridge.IsComposioTool(toolName);
     }
 }

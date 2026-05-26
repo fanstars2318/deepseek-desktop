@@ -21,19 +21,22 @@ public sealed class AppConfig
     /// <summary>本地 OpenAI 兼容 API 的访问密钥列表。</summary>
     public List<LocalApiKey> LocalApiKeys { get; set; } = new();
 
-    /// <summary>Chat2API 会话模式：single（单轮，默认）| multi（多轮，需 session_id）。</summary>
-    public string Chat2ApiSessionMode { get; set; } = "single";
+    /// <summary>DSD API 会话模式：single（单轮，默认）| multi（多轮，需 session_id）。</summary>
+    [JsonPropertyName("Chat2ApiSessionMode")]
+    public string DsdApiSessionMode { get; set; } = "single";
 
-    public int Chat2ApiSessionTimeoutMinutes { get; set; } = 30;
+    [JsonPropertyName("Chat2ApiSessionTimeoutMinutes")]
+    public int DsdApiSessionTimeoutMinutes { get; set; } = 30;
 
-    public int Chat2ApiMaxMessagesPerSession { get; set; } = 100;
+    [JsonPropertyName("Chat2ApiMaxMessagesPerSession")]
+    public int DsdApiMaxMessagesPerSession { get; set; } = 100;
 
-    /// <summary>模型映射（对齐 chat2api-doc 模型映射）。</summary>
+    /// <summary>模型映射（DeepSeek Desktop OpenAI 兼容层）。</summary>
     public List<ModelMappingEntry> ModelMappings { get; set; } = new();
 
     public bool PreferWebSessionForApi { get; set; } = true;
     public int MaxAgentSteps { get; set; } = 25;
-    /// <summary>chat = 网页对话；agent / plan = 进程内 Harness + Chat2API</summary>
+    /// <summary>chat = 网页对话；agent / plan = 进程内 Harness + DSD API</summary>
     public string DefaultWorkMode { get; set; } = "chat";
     /// <summary>blueprint = Explore→Blueprint；execute = Execute 单阶段。plan/react 为兼容别名。</summary>
     public string DefaultAgentStrategy { get; set; } = "execute";
@@ -41,11 +44,26 @@ public sealed class AppConfig
     /// <summary>true：首次 run_shell 时再初始化本地沙盒；false：任务开始前初始化。</summary>
     public bool AgentSandboxLazyInit { get; set; } = true;
 
-    /// <summary>Agent：Chat2API 深度思考；默认关，由 UI 或用户显式开启，不由客户端预判消息类型。</summary>
+    /// <summary>Agent：DSD API 深度思考；默认关，由 UI 或用户显式开启，不由客户端预判消息类型。</summary>
     public bool AgentDeepThinking { get; set; }
 
-    /// <summary>Agent：Chat2API 联网搜索；默认关，由 UI 或用户显式开启。</summary>
+    /// <summary>Agent：DSD API 联网搜索；默认关，由 UI 或用户显式开启。</summary>
     public bool AgentWebSearch { get; set; }
+
+    /// <summary>Agent：Auto 模型选择（对齐 Cursor Auto，按任务复杂度路由）。</summary>
+    public bool AgentModelAuto { get; set; } = true;
+
+    /// <summary>Agent 手动选择的模型（Auto 关闭时生效）。</summary>
+    public string AgentManualModel { get; set; } = "deepseek-v4-pro";
+
+    /// <summary>Agent 手动选择的供应商（Auto 关闭时生效）。</summary>
+    public string AgentManualProviderId { get; set; } = "deepseek";
+
+    /// <summary>Auto 路由时优先按下方顺序选择供应商（API 管理已配置且就绪）。</summary>
+    public bool AgentAutoPreferProviderOrder { get; set; } = true;
+
+    /// <summary>Auto 供应商优先级（靠前优先）；为空时默认供应商优先，其余按注册表顺序。</summary>
+    public List<string> AgentAutoProviderOrder { get; set; } = new();
 
     /// <summary>Agent 运行时写入调试日志（%LocalAppData%\deepseek_desktop\logs）。</summary>
     public bool AgentDebugLogEnabled { get; set; } = true;
@@ -56,6 +74,9 @@ public sealed class AppConfig
 
     /// <summary>启用 MetaGPT 式 Team SOP（/team）。</summary>
     public bool EnableTeamWorkflow { get; set; } = true;
+
+    /// <summary>启用软件工厂工作流（software-factory / factory）。</summary>
+    public bool EnableSoftwareFactoryWorkflow { get; set; } = true;
 
     /// <summary>启用并行 Explore 扇出（/parallel-explore、parallel_explore 工具）。</summary>
     public bool EnableParallelExplore { get; set; } = true;
@@ -81,7 +102,7 @@ public sealed class AppConfig
     public bool AgentAutoIntentRouting { get; set; } = true;
 
     /// <summary>意图分析使用模型 JSON 规划（关闭则仅启发式，省 1 次 LLM 调用）。</summary>
-    public bool AgentIntentUseLlmPlanner { get; set; }
+    public bool AgentIntentUseLlmPlanner { get; set; } = true;
 
     /// <summary>同会话复用已缓存的意图规划（后续轮次跳过 LLM 规划调用）。</summary>
     public bool AgentIntentCacheEnabled { get; set; } = true;
@@ -167,7 +188,7 @@ public sealed class AppConfig
     /// <summary>直连 API Base URL；为空时使用 ApiBaseUrl。</summary>
     public string AgentApiBaseUrl { get; set; } = "";
 
-    /// <summary>推理强度：high | max（直连 API / Chat2API）。</summary>
+    /// <summary>推理强度：high | max（直连 API / DSD API）。</summary>
     public string AgentReasoningEffort { get; set; } = "max";
 
     /// <summary>思考过程展示：normal | lite | raw。</summary>
@@ -245,11 +266,38 @@ public sealed class AppConfig
     public string AgentEmbeddingApiKey { get; set; } = "";
 
     /// <summary>额外 Skill 扫描根（本地 *-main 解压目录，见 scripts/setup-skill-catalog.ps1）。</summary>
-    public List<string> AgentSkillExtraRoots { get; set; } = new()
-    {
-        @"C:\Users\xiaow\Desktop\DSD\antigravity-awesome-skills-main",
-        @"C:\Users\xiaow\Desktop\DSD\awesome-claude-skills-master"
-    };
+    public List<string> AgentSkillExtraRoots { get; set; } = new();
+
+    public List<ApiProviderEntry> ApiProviders { get; set; } = new();
+
+    public string AgentDefaultProviderId { get; set; } = "deepseek";
+
+    public bool AgentComposioEnabled { get; set; }
+
+    public string ComposioApiKey { get; set; } = "";
+
+    public string ComposioEntityId { get; set; } = "default";
+
+    public List<string> ComposioDefaultToolkits { get; set; } = new();
+
+    public bool AgentLangfuseLiveExport { get; set; }
+
+    public int AgentIntentCacheTtlMinutes { get; set; } = 30;
+
+    /// <summary>分层压缩长对话（多段摘要）；关闭则单次摘要。</summary>
+    public bool AgentContextCompactHierarchical { get; set; }
+
+    /// <summary>为 system 消息添加 OpenAI 前缀缓存标记（仅部分 API 支持）。</summary>
+    public bool AgentPrefixCacheEnabled { get; set; }
+
+    /// <summary>子 Agent 回传父级的答案字符上限。</summary>
+    public int AgentSubAgentAnswerMaxChars { get; set; } = 12_000;
+
+    public double AgentMemoryMergeThreshold { get; set; } = 0.85;
+
+    public bool AgentWorkerEnabled { get; set; } = true;
+
+    public int AgentWorkerPoolSize { get; set; }
 
     public List<McpServerConfig> McpServers { get; set; } = new()
     {
@@ -259,4 +307,18 @@ public sealed class AppConfig
             Arguments = ["-y", "@modelcontextprotocol/server-filesystem", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)]
         }
     };
+
+    /// <summary>DSD API 负载均衡策略：round-robin | fill-first | failover。</summary>
+    [JsonPropertyName("Chat2ApiLoadBalanceStrategy")]
+    public string DsdApiLoadBalanceStrategy { get; set; } = "round-robin";
+
+    /// <summary>DSD API 账户权重（轮询策略下生效）。</summary>
+    [JsonPropertyName("Chat2ApiAccountWeights")]
+    public List<DsdApiAccountWeightEntry> DsdApiAccountWeights { get; set; } = new();
+}
+
+public sealed class DsdApiAccountWeightEntry
+{
+    public string AccountId { get; set; } = "";
+    public int Weight { get; set; } = 100;
 }

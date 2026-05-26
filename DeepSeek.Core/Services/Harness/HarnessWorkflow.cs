@@ -18,7 +18,10 @@ public enum HarnessWorkflow
     ParallelExplore,
 
     /// <summary>双 Agent 辩论（CAMEL 角色扮演）。</summary>
-    Debate
+    Debate,
+
+    /// <summary>软件工厂：PM → Architect → Engineer → QA + 交付物。</summary>
+    SoftwareFactory
 }
 
 public sealed class HarnessStrategyProfile

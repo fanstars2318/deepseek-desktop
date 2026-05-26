@@ -1,28 +1,33 @@
 using DeepSeekBrowser.Models;
+using DeepSeekBrowser.Services.Harness.Factory;
 using DeepSeekBrowser.Services.Harness.Graph;
+using DeepSeekBrowser.Services.Harness.Workers;
 
 namespace DeepSeekBrowser.Services.Harness;
 
-public sealed class DeepSeekHarnessRunner : IHarnessRunner
+public sealed class DeepSeekHarnessRunner
 {
     private readonly Func<IAgentWebChat> _chatFactory;
     private readonly McpHub _mcp;
     private readonly Func<string, string, Task<bool>> _requestApproval;
     private readonly Func<string, string, IReadOnlyList<string>, Task<bool>>? _scopeApproval;
     private readonly IUserQuestionHandler? _userQuestions;
+    private readonly HarnessWorkerProcessPool? _workerPool;
 
     public DeepSeekHarnessRunner(
         Func<IAgentWebChat> chatFactory,
         McpHub mcp,
         Func<string, string, Task<bool>> requestApproval,
         IUserQuestionHandler? userQuestions = null,
-        Func<string, string, IReadOnlyList<string>, Task<bool>>? scopeApproval = null)
+        Func<string, string, IReadOnlyList<string>, Task<bool>>? scopeApproval = null,
+        HarnessWorkerProcessPool? workerPool = null)
     {
         _chatFactory = chatFactory;
         _mcp = mcp;
         _requestApproval = requestApproval;
         _scopeApproval = scopeApproval;
         _userQuestions = userQuestions;
+        _workerPool = workerPool;
     }
 
     public Task<HarnessRunResult> RunAsync(
@@ -58,7 +63,8 @@ public sealed class DeepSeekHarnessRunner : IHarnessRunner
             _requestApproval,
             _userQuestions,
             _scopeApproval,
-            Math.Clamp(request.Config.MaxConcurrentSubAgents, 1, 10));
+            Math.Clamp(request.Config.MaxConcurrentSubAgents, 1, 10),
+            request.Config.AgentWorkerEnabled ? _workerPool : null);
 
         if (HarnessGraphStrategy.TryParse(strategy, out var graphId))
         {
@@ -81,6 +87,13 @@ public sealed class DeepSeekHarnessRunner : IHarnessRunner
 
         if (workflow == HarnessWorkflow.Debate)
             return new HarnessDebateOrchestrator(subAgents).RunAsync(routedRequest, callbacks, ct);
+
+        if (workflow == HarnessWorkflow.SoftwareFactory)
+        {
+            return new HarnessSoftwareFactoryOrchestrator(
+                    _chatFactory, _mcp, subAgents, _requestApproval, workspace, _userQuestions, _scopeApproval)
+                .RunAsync(routedRequest, callbacks, ct);
+        }
 
         var chat2 = _chatFactory();
         var approval2 = new ApprovalGate(request.Config, _requestApproval);

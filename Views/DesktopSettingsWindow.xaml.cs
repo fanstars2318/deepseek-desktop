@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using DeepSeekBrowser.Models;
 using DeepSeekBrowser.Services;
+using DeepSeekBrowser.Services.ApiManagement;
 using DeepSeekBrowser.Services.Harness;
 namespace DeepSeekBrowser.Views;
 
@@ -56,28 +57,29 @@ public partial class DesktopSettingsWindow : System.Windows.Window
             ? (Brush)FindResource("DsDanger")
             : (Brush)FindResource("DsSuccess");
         BindAgentHarnessSettings(config);
-        BindChat2ApiSummary(config);
+        BindDsdApiSummary(config);
         RefreshMcpList();
     }
 
-    private void BindChat2ApiSummary(AppConfig config)
+    private void BindDsdApiSummary(AppConfig config)
     {
-        Chat2ApiCompat.EnsureDefaultMappings(config);
+        DsdOpenAiCompat.EnsureDefaultMappings(config);
         var maps = config.ModelMappings.Count;
         var keys = config.LocalApiKeys.Count;
-        var mode = string.Equals(config.Chat2ApiSessionMode, "multi", StringComparison.OrdinalIgnoreCase)
+        var mode = string.Equals(config.DsdApiSessionMode, "multi", StringComparison.OrdinalIgnoreCase)
             ? "多轮" : "单轮";
-        Chat2ApiSummaryText.Text =
-            $"内嵌 Chat2API · {Chat2ApiCompat.DefaultModel} · 会话 {mode} · {maps} 条模型别名" +
+        var apiCount = AccountCredentials.CountActiveAccounts("deepseek", config);
+        DsdApiSummaryText.Text =
+            $"内嵌 API 管理 · {DsdOpenAiCompat.DefaultModel} · 会话 {mode} · {maps} 条模型别名" +
             (config.EnableLocalApiKeyAuth ? " · API Key 认证已启用" : "") +
-            " · 网页登录后自动同步 Token";
+            $" · DeepSeek API 账户 {apiCount} 个（手动添加）";
     }
 
     private void BindAgentHarnessSettings(AppConfig config)
     {
         TuiPortInfoText.Text =
             "DSD Harness（C# 进程内）· Blueprint / Execute 工作流\n" +
-            "LLM：网页桥 + Chat2API（网页 Token）\n" +
+            "LLM：网页桥 + API 管理（网页 Token）\n" +
             "工具：内置文件/Shell + MCP · 配置：~/.deepseek/config.toml";
         TuiSourcePathBox.Text = "";
         TuiSourcePathBox.IsEnabled = false;
@@ -433,9 +435,10 @@ public partial class DesktopSettingsWindow : System.Windows.Window
     {
         if (Config is not null)
             AgentDesktopConfigSync.Apply(Config);
-        var loggedIn = !string.IsNullOrWhiteSpace(Config?.WebUserToken);
+        var webLoggedIn = !string.IsNullOrWhiteSpace(Config?.WebUserToken);
+        var apiCount = Config is null ? 0 : AccountCredentials.CountActiveAccounts("deepseek", Config);
         var text =
-            $"Harness: native (in-process)\n网页登录: {(loggedIn ? "是" : "否")}\n~/.deepseek: {AgentDesktopConfigSync.ConfigPath}";
+            $"Harness: native (in-process)\n普通对话网页登录: {(webLoggedIn ? "是" : "否")}\nAPI 管理账户: {apiCount}\n~/.deepseek: {AgentDesktopConfigSync.ConfigPath}";
         DsMessageDialog.Info(this, text, "Agent 状态");
     }
 

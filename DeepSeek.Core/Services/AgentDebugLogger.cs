@@ -89,14 +89,14 @@ public sealed class AgentDebugLogger : IDisposable
         Write("TUI-SSE", string.Join(" ", parts));
     }
 
-    public void LogChat2ApiRequest(string model, bool thinking, bool search, int messageCount, bool stream)
+    public void LogDsdApiRequest(string model, bool thinking, bool search, int messageCount, bool stream)
     {
         Write(
             "CHAT2API",
             $"POST /v1/chat/completions model={model} thinking={thinking} web_search={search} msgs={messageCount} stream={stream}");
     }
 
-    public void LogChat2ApiDone(string model, long elapsedMs, int? answerChars = null, string? note = null)
+    public void LogDsdApiDone(string model, long elapsedMs, int? answerChars = null, string? note = null)
     {
         var tail = answerChars is not null ? $" answerChars={answerChars}" : "";
         var extra = string.IsNullOrWhiteSpace(note) ? "" : " " + note;

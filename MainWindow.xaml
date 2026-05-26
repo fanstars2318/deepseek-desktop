@@ -29,7 +29,7 @@
                    FontSize="17" FontWeight="SemiBold"
                    Foreground="{StaticResource DsTitle}"
                    HorizontalAlignment="Center"/>
-        <TextBlock Text="加载网页会话与本地 Chat2API…"
+        <TextBlock Text="加载网页会话与 API 管理…"
                    Style="{StaticResource DsHint}"
                    Margin="0,10,0,0"
                    HorizontalAlignment="Center"

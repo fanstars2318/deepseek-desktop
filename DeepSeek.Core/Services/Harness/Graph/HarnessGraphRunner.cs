@@ -284,6 +284,51 @@ public sealed class HarnessGraphRunner
                     ["last_tool_ok"] = exitCode == 0
                 });
             }
+            case "parallel":
+            {
+                var roles = ParseCsv(node.Args.GetValueOrDefault("roles", "explore,plan"));
+                var maxConc = 2;
+                if (node.Args.TryGetValue("maxConcurrency", out var mc) && int.TryParse(mc, out var n))
+                    maxConc = Math.Clamp(n, 1, 10);
+                var taskBase = string.IsNullOrWhiteSpace(node.Prompt) ? request.Prompt : node.Prompt;
+                var reqs = roles.Select(role => new HarnessSubAgentRequest
+                {
+                    Config = request.Config,
+                    Role = role.Trim(),
+                    Task = taskBase + "\n\nPrior:\n" + priorOutput,
+                    ParentSessionId = request.AgentSessionId,
+                    RefFileIds = request.RefFileIds
+                }).ToList();
+                var limited = reqs.Take(maxConc).ToList();
+                var parallel = await RunParallelLimitedAsync(limited, callbacks, ct);
+                var merged = string.Join("\n\n", parallel.Select((r, i) =>
+                    $"### {roles.ElementAtOrDefault(i) ?? "agent"}\n" + (r.Ok ? r.Answer : "ERROR: " + r.Error)));
+                return HarnessGraphNodeResult.FromOutput(merged);
+            }
+            case "map":
+            {
+                var items = ParseJsonStringArray(node.Args.GetValueOrDefault("items", "[]"));
+                var role = node.Role ?? "explore";
+                var prompt = node.Prompt ?? "Process this item:";
+                var parts = new List<string>();
+                foreach (var item in items)
+                {
+                    var sub = await _subAgents.RunAsync(
+                        new HarnessSubAgentRequest
+                        {
+                            Config = request.Config,
+                            Role = role,
+                            Task = prompt + "\n\nItem:\n" + item + "\n\nContext:\n" + priorOutput,
+                            ParentSessionId = request.AgentSessionId,
+                            RefFileIds = request.RefFileIds
+                        },
+                        callbacks,
+                        ct);
+                    parts.Add("### " + item + "\n" + (sub.Ok ? sub.Answer : "ERROR: " + sub.Error));
+                }
+
+                return HarnessGraphNodeResult.FromOutput(string.Join("\n\n", parts));
+            }
             case "interrupt":
             {
                 if (!isResume)
@@ -318,6 +363,39 @@ public sealed class HarnessGraphRunner
             }
             default:
                 return HarnessGraphNodeResult.FromOutput("ERROR: 未知节点类型 " + node.Type);
+        }
+    }
+
+    private async Task<IReadOnlyList<HarnessSubAgentResult>> RunParallelLimitedAsync(
+        IReadOnlyList<HarnessSubAgentRequest> requests,
+        HarnessRunCallbacks callbacks,
+        CancellationToken ct)
+    {
+        if (requests.Count == 0)
+            return Array.Empty<HarnessSubAgentResult>();
+        return await _subAgents.RunParallelAsync(requests, callbacks, ct);
+    }
+
+    private static IReadOnlyList<string> ParseCsv(string csv) =>
+        csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .ToList();
+
+    private static IReadOnlyList<string> ParseJsonStringArray(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                return Array.Empty<string>();
+            return doc.RootElement.EnumerateArray()
+                .Select(e => e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : e.GetRawText())
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .ToList();
+        }
+        catch
+        {
+            return Array.Empty<string>();
         }
     }
 

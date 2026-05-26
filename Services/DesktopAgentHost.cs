@@ -5,12 +5,14 @@ using System.Text.Json;
 using System.Windows;
 using DeepSeekBrowser.Models;
 using DeepSeekBrowser.Services;
+using DeepSeekBrowser.Services.ApiManagement;
 using DeepSeekBrowser.Services.Harness;
 using DeepSeekBrowser.Services.Harness.Graph;
 using DeepSeekBrowser.Services.Harness.Interop;
 using DeepSeekBrowser.Services.Harness.Memory;
 using DeepSeekBrowser.Services.Harness.Observability;
 using DeepSeekBrowser.Services.Harness.Sandbox;
+using DeepSeekBrowser.Services.Harness.Workers;
 using DeepSeekBrowser.Views;
 
 namespace DeepSeekBrowser.Services;
@@ -27,10 +29,11 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
     private readonly SemaphoreSlim _workModeGate = new(1, 1);
     private Window? _owner;
     private AgentRunWindow? _agentWindow;
-    private Chat2ApiIpcBridge? _chat2ApiIpc;
+    private DsdApiIpcBridge? _dsdApiIpc;
     private EmbeddedSettingsSupport? _embeddedSettings;
     private readonly AgentSessionStore _agentSessions = new();
     private DeepSeekHarnessRunner? _harnessRunner;
+    private HarnessWorkerProcessPool? _workerPool;
     private string? _lastAgentWebChatSessionId;
     private AgentAutomationHost? _automationHost;
     private AgentAutomationSupport? _automationSupport;
@@ -102,13 +105,21 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
         return tcs.Task;
     }
 
+    private HarnessWorkerProcessPool GetWorkerPool()
+    {
+        if (_workerPool is null && _config.AgentWorkerEnabled)
+            _workerPool = new HarnessWorkerProcessPool(_config);
+        return _workerPool!;
+    }
+
     private DeepSeekHarnessRunner GetHarnessRunner() =>
         _harnessRunner ??= new DeepSeekHarnessRunner(
             () => AgentChatClientFactory.Create(_config, new DesktopWebChatAdapter(_pages)),
             _mcpHub,
             RequestToolApprovalAsync,
             new DesktopUserQuestionHandler(this),
-            RequestScopeApprovalAsync);
+            RequestScopeApprovalAsync,
+            _config.AgentWorkerEnabled ? GetWorkerPool() : null);
 
     private sealed class DesktopUserQuestionHandler : IUserQuestionHandler
     {
@@ -124,7 +135,7 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
     public void Start()
     {
         ReloadConfig();
-        Chat2ApiCompat.EnsureDefaultMappings(_config);
+        DsdOpenAiCompat.EnsureDefaultMappings(_config);
         _localApi.UpdateConfig(_config);
         if (_config.EnableExternalOpenAiApi)
             _localApi.EnsureExternalApiListening();
@@ -153,7 +164,7 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
         return EmbeddedStackCoordinator.EnsureLinkedAsync(_config, _localApi, ChatWebInject, ct);
     }
 
-    public async Task WarmChat2ApiBridgeAsync()
+    public async Task WarmDsdApiBridgeAsync()
     {
         ReloadConfig();
         if (!string.IsNullOrWhiteSpace(_config.WebUserToken))
@@ -180,21 +191,28 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
         _localApi.UpdateConfig(_config);
     }
 
+    private static bool HasConfiguredDeepSeekApiAccount(AppConfig config) =>
+        ProviderAccountStore.ByProvider("deepseek").Any(a =>
+            a.Status == "active"
+            && !string.IsNullOrWhiteSpace(AccountCredentials.ResolveWebUserToken(a, config)));
+
     public async Task NotifyApiInfoAsync()
     {
         ReloadConfig();
-        var loggedIn = !string.IsNullOrWhiteSpace(_config.WebUserToken);
-        Chat2ApiHealth? health = null;
+        var apiToken = AccountCredentials.ResolveFirstProviderWebToken("deepseek", _config);
+        var loggedIn = !string.IsNullOrWhiteSpace(apiToken);
+        DsdApiHealth? health = null;
         try
         {
-            health = await _pages.ProbeChat2ApiHealthAsync(_config.WebUserToken, InternalChatChannel.DesktopV1);
+            if (!string.IsNullOrWhiteSpace(apiToken))
+                health = await _pages.ProbeDsdApiHealthAsync(apiToken, InternalChatChannel.DesktopV1);
         }
         catch
         {
             // ignore
         }
 
-        Chat2ApiProviderService.WriteIntegrationFile(_config, health);
+        DsdApiProviderService.WriteIntegrationFile(_config, health);
 
         await _pages.PostToPageAsync(new
         {
@@ -204,12 +222,19 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
             agentStrategy = _config.DefaultAgentStrategy,
             agentDeepThinking = _config.AgentDeepThinking,
             agentWebSearch = _config.AgentWebSearch,
+            agentModelAuto = _config.AgentModelAuto,
+            agentManualModel = _config.AgentManualModel,
+            agentManualProviderId = _config.AgentManualProviderId,
+            agentAutoPreferProviderOrder = _config.AgentAutoPreferProviderOrder,
+            agentAutoProviderOrder = _config.AgentAutoProviderOrder,
+            agentDefaultProviderId = _config.AgentDefaultProviderId,
+            agentModel = _config.Model,
             agentThinkingDisplayMode = _config.AgentThinkingDisplayMode ?? AgentThinkingDisplayModes.Normal,
             agentInferenceMode = _config.AgentInferenceMode ?? AgentInferenceModes.Web,
             agentSessionPlan = _config.AgentSessionPlanMarkdown ?? "",
             hint = loggedIn
-                ? "网页会话已同步，可使用 Agent 与深度思考"
-                : "请先在普通对话登录 DeepSeek 网页",
+                ? "API 账户已配置，可使用 Agent"
+                : "请在 API 管理中手动添加 DeepSeek 账户",
             agentEngine = "native-harness"
         });
     }
@@ -245,19 +270,19 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
                 break;
             case "prepareEmbeddedPanel":
                 ReloadConfig();
-                GetChat2ApiIpc().RefreshConfig(_config);
+                GetDsdApiIpc().RefreshConfig(_config);
                 break;
             case "openSettings":
                 await EnsureAgentAndShowEmbeddedPanelAsync("settings");
                 break;
-            case "openChat2Api":
-                await EnsureAgentAndShowEmbeddedPanelAsync("chat2api");
+            case "openApiManagement":
+                await EnsureAgentAndShowEmbeddedPanelAsync("apiManagement");
                 break;
             case "ipcInvoke":
                 await HandleEmbeddedIpcInvokeAsync(msg);
                 break;
             case "consoleUiReady":
-                await _pages.Agent.PostToPageAsync(new { type = "embeddedPanelReady", panel = "chat2api" });
+                await _pages.Agent.PostToPageAsync(new { type = "embeddedPanelReady", panel = "apiManagement" });
                 break;
             case "openDeepSeekLogin":
                 if (NavigateToUrl is not null)
@@ -266,15 +291,15 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
                 break;
             case "syncDesktopStack":
                 ReloadConfig();
-                GetChat2ApiIpc().RefreshConfig(_config);
-                await SyncChat2ApiStackAsync(_config, CancellationToken.None);
+                GetDsdApiIpc().RefreshConfig(_config);
+                await SyncDsdApiStackAsync(_config, CancellationToken.None);
                 await _pages.Agent.PostToPageAsync(new { type = "desktopStackSynced", ok = true });
                 break;
             case "openTuiConfigFile":
             case "openAgentConfigFile":
                 OpenAgentConfigFile();
                 break;
-            case "openAgentFromChat2Api":
+            case "openAgentFromApiManagement":
                 if (!_pages.IsAgentVisible)
                 {
                     await _pages.WorkMode.ShowAgentSurfaceAsync();
@@ -294,11 +319,12 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
             case "settingsOpenDocs":
             case "settingsCopyConfigPath":
             case "settingsOpenConfig":
+            case "settingsTestLangfuse":
                 await GetEmbeddedSettings().HandleAsync(msg);
                 if (type == "settingsSave")
                 {
                     _localApi.UpdateConfig(_config);
-                    GetChat2ApiIpc().RefreshConfig(_config);
+                    GetDsdApiIpc().RefreshConfig(_config);
                     await NotifyApiInfoAsync();
                 }
                 break;
@@ -310,6 +336,9 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
             case "agentWorkspacePickFolder":
             case "agentWorkspacePatch":
                 await HandleAgentWorkspaceAsync(msg, type);
+                break;
+            case "agentProviderCatalog":
+                await HandleAgentProviderCatalogAsync(msg);
                 break;
             case "showProviderCard":
                 await NotifyApiInfoAsync();
@@ -371,6 +400,20 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
                     : (msg.TryGetProperty("tuiThreadId", out var ttEl) ? ttEl.GetString() : null);
                 var playbookId = msg.TryGetProperty("playbookId", out var pbEl) ? pbEl.GetString() : null;
                 var skillId = msg.TryGetProperty("skillId", out var skEl) ? skEl.GetString() : null;
+                if (msg.TryGetProperty("modelAuto", out var modelAutoEl))
+                    _config.AgentModelAuto = modelAutoEl.GetBoolean();
+                if (msg.TryGetProperty("model", out var modelEl) && modelEl.ValueKind == JsonValueKind.String)
+                {
+                    var manual = modelEl.GetString();
+                    if (!string.IsNullOrWhiteSpace(manual))
+                        _config.AgentManualModel = manual.Trim();
+                }
+                if (msg.TryGetProperty("providerId", out var provEl) && provEl.ValueKind == JsonValueKind.String)
+                {
+                    var pid = provEl.GetString();
+                    if (!string.IsNullOrWhiteSpace(pid))
+                        _config.AgentManualProviderId = pid.Trim();
+                }
 
                 _ = RunAgentAsync(
                     text!, chatMode ?? "专家", deepThink, smartSearch, mcpOn,
@@ -1330,7 +1373,7 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
     private async Task PushLoginStateAsync()
     {
         ReloadConfig();
-        var loggedIn = !string.IsNullOrWhiteSpace(_config.WebUserToken);
+        var loggedIn = HasConfiguredDeepSeekApiAccount(_config);
         await _pages.PushAgentAuthHintAsync(loggedIn);
         await _pages.PostToPageAsync(new { type = "loginState", loggedIn });
         await PushWorkspaceStateAsync();
@@ -1360,7 +1403,7 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
         try
         {
             ReloadConfig();
-            var loggedIn = !string.IsNullOrWhiteSpace(_config.WebUserToken);
+            var loggedIn = HasConfiguredDeepSeekApiAccount(_config);
             await _pages.PushAgentAuthHintAsync(loggedIn);
             await _pages.PostToPageAsync(new { type = "loginState", loggedIn });
         }
@@ -1394,7 +1437,7 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
             return;
         _config.WebUserToken = normalized;
         ConfigStore.Save(_config);
-        await Chat2ApiStackBootstrap.OnWebLoginAsync(_config, _localApi, ChatWebInject);
+        await DsdApiStackBootstrap.OnWebLoginAsync(_config, _localApi, ChatWebInject);
         await NotifyApiInfoAsync();
         await PushLoginStateAsync();
     }
@@ -1441,20 +1484,20 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
         }
     }
 
-    private Chat2ApiIpcBridge GetChat2ApiIpc() =>
-        _chat2ApiIpc ??= new Chat2ApiIpcBridge(_localApi, ResolveChat2ApiWebInject(), () => _owner, SyncChat2ApiStackAsync);
+    private DsdApiIpcBridge GetDsdApiIpc() =>
+        _dsdApiIpc ??= new DsdApiIpcBridge(_localApi, ResolveDsdApiWebInject(), () => _owner, SyncDsdApiStackAsync);
 
-    private WebInjectService ResolveChat2ApiWebInject() => (WebInjectService)_pages.Agent;
+    private WebInjectService ResolveDsdApiWebInject() => (WebInjectService)_pages.Agent;
 
-    private async Task SyncChat2ApiStackAsync(AppConfig config, CancellationToken ct)
+    private async Task SyncDsdApiStackAsync(AppConfig config, CancellationToken ct)
     {
         AgentDesktopConfigSync.Apply(config);
         await EmbeddedStackCoordinator.EnsureLinkedAsync(config, _localApi, ChatWebInject, ct)
             .ConfigureAwait(false);
-        Chat2ApiHealth? health = null;
+        DsdApiHealth? health = null;
         try
         {
-            health = await _pages.ProbeChat2ApiHealthAsync(config.WebUserToken, InternalChatChannel.DesktopV1, ct)
+            health = await _pages.ProbeDsdApiHealthAsync(config.WebUserToken, InternalChatChannel.DesktopV1, ct)
                 .ConfigureAwait(false);
         }
         catch
@@ -1462,7 +1505,7 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
             // ignore
         }
 
-        Chat2ApiProviderService.WriteIntegrationFile(config, health);
+        DsdApiProviderService.WriteIntegrationFile(config, health);
     }
 
     private EmbeddedSettingsSupport GetEmbeddedSettings() =>
@@ -1486,7 +1529,7 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
     private async Task ShowEmbeddedPanelAsync(string panel)
     {
         ReloadConfig();
-        GetChat2ApiIpc().RefreshConfig(_config);
+        GetDsdApiIpc().RefreshConfig(_config);
         await _pages.Agent.PostToPageAsync(new { type = "showEmbeddedPanel", panel });
     }
 
@@ -1502,14 +1545,14 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
         string? error = null;
         try
         {
-            result = await GetChat2ApiIpc().InvokeAsync(channel, args);
+            result = await GetDsdApiIpc().InvokeAsync(channel, args);
         }
         catch (Exception ex)
         {
             error = ex.Message;
         }
 
-        if (AppNavigation.IsChat2ApiAgentPage(_pages.AgentSource))
+        if (AppNavigation.IsEmbeddedApiManagementPage(_pages.AgentSource))
             await _pages.Agent.PostWebMessageAsync(new { type = "ipcResult", id, result, error });
         else
             await _pages.Agent.PostToPageAsync(new { type = "ipcResult", id, result, error });
@@ -1578,12 +1621,34 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
         ReloadConfig();
         await SyncTokenFromPageAsync();
         AgentModeHelper.ApplyAgentDefaults(_config);
-        AgentModeHelper.ApplyChatMode(_config, mode, deepThink, smartSearch);
+        var historyCount = 0;
+        if (!string.IsNullOrWhiteSpace(sessionId))
+        {
+            try
+            {
+                var session = new AgentSessionStore().Load(sessionId);
+                historyCount = session?.Messages?.Count ?? 0;
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        var autoSel = AgentModeHelper.ApplyChatMode(
+            _config,
+            mode,
+            deepThink,
+            smartSearch,
+            task,
+            strategy,
+            refFileIds?.Count ?? 0,
+            historyCount);
         _pages.AgentRefFileIds = refFileIds ?? Array.Empty<string>();
         ConfigStore.Save(_config);
         _localApi.UpdateConfig(_config);
 
-        using var featureScope = Chat2ApiFeatureScope.Begin(deepThink, smartSearch);
+        using var featureScope = DsdAgentApiScope.Begin(deepThink, smartSearch);
         _localApi.EnsureAgentScopedListening();
         AgentDesktopConfigSync.Apply(_config);
         using var debugLog = _config.AgentDebugLogEnabled
@@ -1591,7 +1656,9 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
             : null;
 
         debugLog?.Write("CONFIG", $"深度思考={deepThink} 智能搜索={smartSearch} strategy={strategy} mcp={mcpOn}");
-        debugLog?.Write("CONFIG", $"Harness=native Chat2API port={_config.LocalApiPort}");
+        if (autoSel is not null)
+            debugLog?.Write("CONFIG", $"[Auto] {autoSel.ReasonZh} → {autoSel.ModelId} ({autoSel.Tier})");
+        debugLog?.Write("CONFIG", $"Harness=native DSD API port={_config.LocalApiPort}");
 
         void Log(string line)
         {
@@ -1618,6 +1685,34 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
             if (PostToWebUi)
                 await _pages.PostToPageAsync(new { type = "agentStarted", task });
 
+            if (autoSel is not null)
+            {
+                Log($"[Auto] {autoSel.ProviderName} / {autoSel.ModelId} — {autoSel.ReasonZh}");
+                if (PostToWebUi)
+                {
+                    await _pages.PostToPageAsync(new
+                    {
+                        type = "agentModelResolved",
+                        providerId = autoSel.ProviderId,
+                        providerName = autoSel.ProviderName,
+                        model = autoSel.ModelId,
+                        tier = autoSel.Tier,
+                        reason = autoSel.ReasonZh,
+                        auto = true
+                    });
+                }
+            }
+            else if (PostToWebUi)
+            {
+                await _pages.PostToPageAsync(new
+                {
+                    type = "agentModelResolved",
+                    providerId = _config.AgentDefaultProviderId,
+                    model = _config.Model,
+                    auto = false
+                });
+            }
+
             if (string.IsNullOrWhiteSpace(_config.WebUserToken)
                 && !AgentChatClientFactory.UsesDirectApi(_config))
             {
@@ -1633,7 +1728,7 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
                 var flags = new List<string>();
                 if (deepThink) flags.Add("深度思考");
                 if (smartSearch) flags.Add("智能搜索");
-                Log("特性: " + string.Join(" · ", flags) + "（Chat2API）");
+                Log("特性: " + string.Join(" · ", flags) + "（API 管理）");
             }
 
             void PostActivity(DeepSeekBrowser.Services.AgentUiActivity a)
@@ -1674,11 +1769,11 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                Log("Chat2API 桥接预热超时，继续尝试…");
+                Log("API 管理桥接预热超时，继续尝试…");
             }
             catch (Exception ex)
             {
-                Log("Chat2API 桥接: " + ex.Message);
+                Log("API 管理桥接: " + ex.Message);
             }
 
             if (mcpOn && _mcpHub.ConnectedCount == 0)
@@ -1944,7 +2039,35 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
                 case "agentWorkspacePatch":
                     if (msg.TryGetProperty("defaultAgentStrategy", out var stratEl))
                         _config.DefaultAgentStrategy = HarnessStrategyResolver.Normalize(stratEl.GetString());
+                    if (msg.TryGetProperty("agentModelAuto", out var autoEl))
+                        _config.AgentModelAuto = autoEl.GetBoolean();
+                    if (msg.TryGetProperty("agentManualModel", out var manualEl)
+                        && manualEl.ValueKind == JsonValueKind.String)
+                    {
+                        var manual = manualEl.GetString();
+                        if (!string.IsNullOrWhiteSpace(manual))
+                            _config.AgentManualModel = manual.Trim();
+                    }
+                    if (msg.TryGetProperty("agentManualProviderId", out var manualProvEl)
+                        && manualProvEl.ValueKind == JsonValueKind.String)
+                    {
+                        var mp = manualProvEl.GetString();
+                        if (!string.IsNullOrWhiteSpace(mp))
+                            _config.AgentManualProviderId = mp.Trim();
+                    }
+                    if (msg.TryGetProperty("agentAutoPreferProviderOrder", out var preferEl))
+                        _config.AgentAutoPreferProviderOrder = preferEl.GetBoolean();
+                    if (msg.TryGetProperty("agentAutoProviderOrder", out var orderEl)
+                        && orderEl.ValueKind == JsonValueKind.Array)
+                    {
+                        _config.AgentAutoProviderOrder = orderEl.EnumerateArray()
+                            .Select(e => e.GetString())
+                            .Where(s => !string.IsNullOrWhiteSpace(s))
+                            .Select(s => s!.Trim())
+                            .ToList();
+                    }
                     ConfigStore.Save(_config);
+                    AgentDesktopConfigSync.Apply(_config);
                     await ReplyWorkspaceAsync(reqId, BuildWorkspacePayload());
                     break;
             }
@@ -1986,8 +2109,31 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
             homePath = home,
             recents = recents.Select(p => new { path = p, name = AgentWorkspaceRecents.DisplayName(p) }).ToList(),
             defaultAgentStrategy = _config.DefaultAgentStrategy,
-            agentSandboxLazyInit = _config.AgentSandboxLazyInit
+            agentSandboxLazyInit = _config.AgentSandboxLazyInit,
+            agentModelAuto = _config.AgentModelAuto,
+            agentManualModel = _config.AgentManualModel,
+            agentManualProviderId = _config.AgentManualProviderId,
+            agentAutoPreferProviderOrder = _config.AgentAutoPreferProviderOrder,
+            agentAutoProviderOrder = _config.AgentAutoProviderOrder,
+            agentDefaultProviderId = _config.AgentDefaultProviderId,
+            agentModel = _config.Model
         };
+    }
+
+    private async Task HandleAgentProviderCatalogAsync(JsonElement msg)
+    {
+        ReloadConfig();
+        var reqId = msg.TryGetProperty("reqId", out var reqEl) ? reqEl.GetString() : null;
+        await _pages.Agent.PostToPageAsync(new
+        {
+            type = "agentProviderCatalog",
+            reqId,
+            ok = true,
+            providers = AutoProviderPool.ToCatalogDto(_config),
+            agentAutoPreferProviderOrder = _config.AgentAutoPreferProviderOrder,
+            agentAutoProviderOrder = _config.AgentAutoProviderOrder,
+            agentDefaultProviderId = _config.AgentDefaultProviderId
+        });
     }
 
     private async Task PushWorkspaceStateAsync()
@@ -2108,7 +2254,7 @@ public sealed partial class DesktopAgentHost : IAsyncDisposable
             _localApi.UpdateConfig(_config);
             _localApi.EnsureAgentScopedListening();
 
-            using var featureScope = Chat2ApiFeatureScope.Begin(
+            using var featureScope = DsdAgentApiScope.Begin(
                 _config.AgentDeepThinking, _config.AgentWebSearch);
             using var debugLog = _config.AgentDebugLogEnabled
                 ? AgentDebugLogger.Begin($"[automation:{automation.Name}] {task}", false)

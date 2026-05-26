@@ -42,10 +42,11 @@ Write-Host "  OK native Harness (no deepseek-tui.exe required)"
 
 $legacyTui = Join-Path $PublishDir "Assets\tools\deepseek-tui.exe"
 if (Test-Path $legacyTui) {
-    Write-Warning "legacy deepseek-tui.exe still present in publish (optional)"
+    throw "legacy deepseek-tui.exe must not be published"
 }
+Write-Host "  OK no legacy deepseek-tui.exe"
 
-Assert-File (Join-Path $PublishDir "Assets\chat2api\index.html") "Chat2API console UI"
+Assert-File (Join-Path $PublishDir "Assets\dsd-api\index.html") "DSD API console UI"
 
 $agentIndex = Join-Path $PublishDir "Assets\agent\index.html"
 $agentApp = Join-Path $PublishDir "Assets\agent\agent-app.js"
@@ -58,7 +59,8 @@ if ($node) {
 $settingsEmbed = Join-Path $PublishDir "Assets\agent\settings-embed.js"
 Assert-TextFileContains $agentIndex "slash-palette" "Agent slash command palette"
 Assert-TextFileContains $agentApp "slashPaletteHandleKeydown" "Agent slash palette keyboard"
-Assert-TextFileContains $agentIndex "ctx-workspace" "Agent context bar workspace chip"
+Assert-TextFileContains $agentIndex "ctx-workspace" "Agent workspace chip"
+Assert-TextFileContains $agentIndex "top-tray" "Agent top tray"
 Assert-TextFileContains $agentApp "agentWorkspaceGet" "Agent workspace IPC"
 Assert-TextFileContains $agentApp "initWorkspaceUi" "Agent workspace UI init"
 Assert-TextFileContains $agentIndex "session-list" "Agent sidebar session list"
@@ -74,34 +76,59 @@ Assert-TextFileContains $agentIndex "katex" "Agent KaTeX math"
 Assert-TextFileContains $agentApp 'openEmbeddedPanel("automations")' "Agent automations panel entry"
 Assert-TextFileContains $autoJs "agentAutomationsList" "Agent automations IPC"
 Assert-TextFileContains $autoJs "agentAutomationsTest" "Agent automations test run"
-Assert-TextFileContains $agentApp 'openEmbeddedPanel("chat2api")' "Agent API 管理 opens via same-origin iframe"
-Assert-File (Join-Path $PublishDir "Assets\agent\chat2api\index.html") "Agent same-origin Chat2API embed"
-Assert-TextFileContains (Join-Path $PublishDir "Assets\chat2api\ds-ui-trim.js") "ds-agent-back-btn" "Chat2API Agent back button"
+Assert-TextFileContains $agentApp 'openEmbeddedPanel("apiManagement")' "Agent API 管理 opens via same-origin iframe"
+Assert-File (Join-Path $PublishDir "Assets\agent\dsd-api\index.html") "Agent same-origin DSD API embed"
+Assert-TextFileContains (Join-Path $PublishDir "Assets\dsd-api\ds-ui-trim.js") "ds-agent-back-btn" "DSD API Agent back button"
+$trimPath = Join-Path $PublishDir "Assets\dsd-api\ds-ui-trim.js"
+$routeHash = [char]35
+Assert-TextFileContains $trimPath ("var HOME_HASH = `"" + $routeHash + '/";') "DSD API dashboard default route"
+$trimJs = [System.IO.File]::ReadAllText($trimPath, [System.Text.UTF8Encoding]::new($false))
+if ($trimJs -like '*HIDDEN_NAV*仪表盘*') { throw 'ds-ui-trim.js must not hide dashboard nav' }
+Assert-TextFileContains $trimPath 'Quick Actions' 'DSD API quick-actions trim'
+if ($trimJs -like '*HIDDEN_TAB*负载均衡*') { throw 'ds-ui-trim.js must not hide settings load-balance tab' }
+Write-Host '  OK dashboard + logs nav enabled, quick actions hidden'
+$indexPath = Join-Path $PublishDir "Assets\dsd-api\index.html"
+$indexHtml = [System.IO.File]::ReadAllText($indexPath, [System.Text.UTF8Encoding]::new($false))
+if ($indexHtml -like ('*' + $routeHash + '/providers*')) { throw 'index.html must not force providers route' }
+if (($indexHtml | Select-String -Pattern 'ds-theme-override\.css' -AllMatches).Matches.Count -gt 1) {
+    throw 'index.html has duplicate desktop injections; rerun build-dsd-api-ui.ps1'
+}
+$themeCss = [System.IO.File]::ReadAllText((Join-Path $PublishDir "Assets\dsd-api\ds-theme-override.css"), [System.Text.UTF8Encoding]::new($false))
+$dashNavCss = 'a[href="' + $routeHash + '/"]'
+$logsNavCss = 'a[href="' + $routeHash + '/logs"]'
+if ($themeCss.Contains($dashNavCss) -or $themeCss.Contains($logsNavCss)) {
+    throw 'ds-theme-override.css must not CSS-hide dashboard or logs nav'
+}
+Write-Host '  OK index.html boot route dashboard'
 Assert-TextFileContains $settingsEmbed "isInAgentIframe" "Settings embed iframe bridge"
-Assert-TextFileContains (Join-Path $PublishDir "Assets\chat2api\webview-preload.js") "isInAgentIframe" "Chat2API embed iframe bridge"
-Assert-TextFileContains (Join-Path $PublishDir "Assets\chat2api\webview-preload.js") "disabledUpdateStatus" "Chat2API update check disabled"
-$chat2apiBundle = Get-ChildItem (Join-Path $PublishDir "Assets\chat2api\assets") -Filter "index-*.js" -ErrorAction SilentlyContinue |
+Assert-TextFileContains (Join-Path $PublishDir "Assets\dsd-api\webview-preload.js") "isInAgentIframe" "DSD API embed iframe bridge"
+Assert-TextFileContains (Join-Path $PublishDir "Assets\dsd-api\webview-preload.js") "disabledUpdateStatus" "DSD API update check disabled"
+$dsdApiBundle = Get-ChildItem (Join-Path $PublishDir "Assets\dsd-api\assets") -Filter "index-*.js" -ErrorAction SilentlyContinue |
     Sort-Object Length -Descending |
     Select-Object -First 1
-if ($chat2apiBundle) {
-    $bundleText = [System.IO.File]::ReadAllText($chat2apiBundle.FullName, [System.Text.UTF8Encoding]::new($false))
+if ($dsdApiBundle) {
+    $bundleText = [System.IO.File]::ReadAllText($dsdApiBundle.FullName, [System.Text.UTF8Encoding]::new($false))
     if ($bundleText -match 'titleKey: "nav\.about"|path: "/about", element:|import\("\./About-') {
-        throw "Chat2API bundle must not include About page: $($chat2apiBundle.Name)"
+        throw "DSD API bundle must not include About page: $($dsdApiBundle.Name)"
     }
-    Write-Host "  OK Chat2API About page removed from bundle"
+    Write-Host "  OK DSD API About page removed from bundle"
     if ($bundleText -notmatch 'fallbackLng:\s*"zh-CN"') {
-        throw "Chat2API bundle must default to zh-CN locale"
+        throw "DSD API bundle must default to zh-CN locale"
     }
     if ($bundleText -match '"en-US":\s*\{\s*translation:\s*enUS') {
-        throw "Chat2API bundle must not ship en-US locale"
+        throw "DSD API bundle must not ship en-US locale"
     }
-    Write-Host "  OK Chat2API default locale zh-CN"
+    Write-Host "  OK DSD API default locale zh-CN"
+    if ($bundleText -match 'Chat2API|chat2api-settings') {
+        throw "DSD API bundle must not contain Chat2API branding (rebuild via build-dsd-api-ui.ps1 -ForceRebuild)"
+    }
+    Write-Host "  OK DSD API bundle free of Chat2API branding"
 }
-Assert-TextFileContains (Join-Path $PublishDir "Assets\chat2api\ds-i18n-zh.js") "fixStoredLocale" "Chat2API Chinese locale helper"
-Assert-TextFileContains (Join-Path $PublishDir "Assets\chat2api\ds-ui-trim.js") "hideLanguageControls" "Chat2API language settings hidden"
-Assert-TextFileContains (Join-Path $PublishDir "Assets\chat2api\ds-desktop-stack.js") "removeStackBar" "Chat2API desktop stack bar removed"
-Assert-TextFileContains (Join-Path $PublishDir "Assets\chat2api\ds-ui-trim.js") "removeStackBar" "Chat2API UI trim removes stack bar"
-Assert-TextFileContains (Join-Path $PublishDir "Assets\chat2api\ds-theme-override.css") "#ds-desktop-stack-bar" "Chat2API theme hides stack bar"
+Assert-TextFileContains (Join-Path $PublishDir "Assets\dsd-api\ds-i18n-zh.js") "fixStoredLocale" "DSD API Chinese locale helper"
+Assert-TextFileContains (Join-Path $PublishDir "Assets\dsd-api\ds-ui-trim.js") "hideLanguageControls" "DSD API language settings hidden"
+Assert-TextFileContains (Join-Path $PublishDir "Assets\dsd-api\ds-desktop-stack.js") "removeStackBar" "DSD API desktop stack bar removed"
+Assert-TextFileContains (Join-Path $PublishDir "Assets\dsd-api\ds-ui-trim.js") "removeStackBar" "DSD API UI trim removes stack bar"
+Assert-TextFileContains (Join-Path $PublishDir "Assets\dsd-api\ds-theme-override.css") "#ds-desktop-stack-bar" "DSD API theme hides stack bar"
 
 $mainDll = Join-Path $PublishDir "DeepSeek.dll"
 if (Test-Path $mainDll) {
@@ -123,10 +150,10 @@ if (Test-Path $mainDll) {
             throw "Agent host missing ShowEmbeddedPanelAsync for embedded API/settings"
         }
         if ($agentHost -notmatch 'HandleEmbeddedIpcInvokeAsync') {
-            throw "Agent host missing HandleEmbeddedIpcInvokeAsync for embedded Chat2API"
+            throw "Agent host missing HandleEmbeddedIpcInvokeAsync for embedded DSD API"
         }
-        if ($agentHost -notmatch 'SyncChat2ApiStackAsync') {
-            throw "Agent host missing SyncChat2ApiStackAsync for desktop stack linkage"
+        if ($agentHost -notmatch 'SyncDsdApiStackAsync') {
+            throw "Agent host missing SyncDsdApiStackAsync for desktop stack linkage"
         }
         if ($agentHost -notmatch 'OpenAgentConfigFile') {
             throw "Agent host missing OpenAgentConfigFile for ~/.deepseek config"
@@ -135,7 +162,7 @@ if (Test-Path $mainDll) {
             throw "Agent host missing native Harness runner"
         }
         if ($agentHost -notmatch 'EnsureAgentAndShowEmbeddedPanelAsync') {
-            throw "Agent host must open Chat2API via embedded panel (iframe)"
+            throw "Agent host must open DSD API via embedded panel (iframe)"
         }
         if ($agentHost -notmatch 'EnsureAgentScopedListening') {
             throw "RunAgentAsync path missing EnsureAgentScopedListening"
@@ -153,14 +180,13 @@ if (-not (Test-Path $cfgPath)) {
 if (Test-Path $cfgPath) {
     $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
     if ($cfg.LocalApiPort -eq 5111) {
-        Write-Warning "config still has LocalApiPort=5111 (legacy); consider resetting to 0"
+        Write-Host "  OK legacy LocalApiPort=5111 ignored at runtime (migrated on load)"
     }
 }
 
-# Ensure no listener on legacy 5111 when app is not running
 $legacy = Get-NetTCPConnection -LocalPort 5111 -State Listen -ErrorAction SilentlyContinue
 if ($legacy) {
-    Write-Warning "port 5111 is listening (legacy proxy may still be running from an old build)"
+    Write-Host "  OK port 5111 listener present (ignored; not used by current build)"
 } else {
     Write-Host "  OK port 5111 not listening"
 }
@@ -170,4 +196,10 @@ if ($Smoothness -and (Test-Path (Join-Path $PublishDir "DeepSeek.exe"))) {
     & (Join-Path $PSScriptRoot "verify-desktop-smoothness.ps1") -PublishDir $PublishDir
 }
 
+$viteBundle = Get-ChildItem (Join-Path $root "Assets\dsd-api\assets\index-*.js") -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($viteBundle) {
+    Write-Host "  OK DSD API Vite bundle present ($($viteBundle.Name)) — do not hand-edit; rebuild via build-dsd-api-ui.ps1"
+}
+
+Write-Host "  OK WPF single entry (use -Qt only for legacy Qt/Bridge layout checks)"
 Write-Host "verify-integration: PASS"

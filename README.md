@@ -1,6 +1,6 @@
 # DeepSeek Desktop
 
-Windows 桌面客户端：内嵌 DeepSeek 网页会话、本地 **Agent Harness**、**Chat2API** 兼容层、MCP 工具、工作区沙盒与自动化能力。
+Windows 桌面客户端：内嵌 DeepSeek 网页会话、本地 **Agent Harness**、**DSD API** 兼容层、MCP 工具、工作区沙盒与自动化能力。
 
 | 项目 | 说明 |
 |------|------|
@@ -17,7 +17,7 @@ Windows 桌面客户端：内嵌 DeepSeek 网页会话、本地 **Agent Harness*
 
 - **双模式桌面**：普通聊天（DeepSeek 网页）与 **Agent** 面板一键切换，双 WebView 保活、流畅显隐。
 - **Harness**：本地智能体编排、工具审批、工作区文件/Shell、Skills 与多智能体工作流。
-- **Chat2API**：将已登录网页会话暴露为本地 OpenAI 兼容 HTTP（可选），供 Agent 或外部工具调用。
+- **DSD API**：将已登录网页会话暴露为本地 OpenAI 兼容 HTTP（可选），供 Agent 或外部工具调用。
 - **MCP**：可挂载 Model Context Protocol 服务器扩展工具面。
 - **安全与合规**：见根目录 [DISCLAIMER.md](./DISCLAIMER.md)（非 DeepSeek 官方产品）。
 
@@ -50,8 +50,8 @@ cd deepseek-desktop
 发布 zip（本地打包，不上传 GitHub）：
 
 ```powershell
-.\scripts\package-release.ps1 -Version 2.2.0
-# 产物：.building/artifacts/release/DeepSeek-Desktop-2.2.0-win-x64.zip
+.\scripts\package-release.ps1 -Version 2.3.0
+# 产物：.building/artifacts/release/DeepSeek-Desktop-2.3.0-win-x64.zip
 ```
 
 提交前建议：
@@ -68,8 +68,8 @@ cd deepseek-desktop
 
 | 路径 | 说明 |
 |------|------|
-| `Assets/` | 运行时 Web 资产（inject、agent、chat2api） |
-| `DeepSeek.Core/` | Harness、配置、Chat2API 核心 |
+| `Assets/` | 运行时 Web 资产（inject、agent、dsd-api） |
+| `DeepSeek.Core/` | Harness、配置、DSD API 核心 |
 | `Services/`、`Views/`、`MainWindow` | WPF 壳与 IPC |
 | `scripts/` | 构建、验收、发布脚本 |
 | `docs/` | 架构、Agent 指南、Interop 等 |

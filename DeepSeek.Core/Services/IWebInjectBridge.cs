@@ -5,7 +5,7 @@ public interface IWebInjectBridge
 {
     Task SyncApiBridgeTokenAsync(string? webUserToken, CancellationToken ct = default);
     Task EnsureApiBridgeReadyAsync(CancellationToken ct = default);
-    Task<Chat2ApiHealth?> ProbeChat2ApiHealthAsync(
+    Task<DsdApiHealth?> ProbeDsdApiHealthAsync(
         string? configWebUserToken,
         string baseUrl,
         CancellationToken ct = default);

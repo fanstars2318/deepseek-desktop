@@ -26,6 +26,9 @@ public static class AgentStrategies
     /// <summary>CAMEL 式 Advocate / Critic 辩论。</summary>
     public const string Debate = "debate";
 
+    /// <summary>MetaGPT 式软件工厂：文档 + 实现 + git + 交付报告。</summary>
+    public const string SoftwareFactory = "software-factory";
+
     public const string GraphPrefix = "graph:";
 
     public static bool IsGraph(string? strategy) =>

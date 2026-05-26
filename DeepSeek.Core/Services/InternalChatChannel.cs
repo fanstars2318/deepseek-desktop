@@ -39,7 +39,7 @@ public static class InternalChatChannel
             return root.EndsWith("/v1", StringComparison.OrdinalIgnoreCase) ? root : root + "/v1";
         }
 
-        if (Chat2ApiFeatureScope.HasActiveAgentRun)
+        if (DsdAgentApiScope.HasActiveAgentRun)
             return GetAgentScopedLlmBaseUrl(config);
 
         return null;

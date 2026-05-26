@@ -34,20 +34,10 @@ public static class HarnessContextCompactor
         if (middle.Count == 0)
             return;
 
-        var sb = new StringBuilder("Summarize briefly for continuation (facts, decisions, open items):\n\n");
-        foreach (var m in middle)
-            sb.Append('[').Append(m.Role).Append("] ").AppendLine(m.Content ?? "");
+        var summaryText = config.AgentContextCompactHierarchical && middle.Count > 12
+            ? await SummarizeHierarchicalAsync(chat, middle, model, options, ct)
+            : await SummarizeBlockAsync(chat, middle, model, options, ct);
 
-        var summaryReq = new List<ChatMessage>
-        {
-            new() { Role = "user", Content = sb.ToString() }
-        };
-
-        var summary = await chat.CompleteAsync(
-            summaryReq, model, thinking: false, search: false, Array.Empty<string>(),
-            allowToolCalls: false, ct, options: options);
-
-        var summaryText = (summary.Content ?? "").Trim();
         if (string.IsNullOrWhiteSpace(summaryText))
             return;
 
@@ -60,6 +50,57 @@ public static class HarnessContextCompactor
             Content = "Earlier conversation summary:\n\n" + summaryText
         });
         messages.AddRange(recent.Where(m => !ReferenceEquals(m, keepSystem)));
+    }
+
+    private static async Task<string> SummarizeBlockAsync(
+        IAgentWebChat chat,
+        IReadOnlyList<ChatMessage> middle,
+        string model,
+        AgentChatOptions? options,
+        CancellationToken ct)
+    {
+        var sb = new StringBuilder("Summarize briefly for continuation (facts, decisions, open items):\n\n");
+        foreach (var m in middle)
+            sb.Append('[').Append(m.Role).Append("] ").AppendLine(m.Content ?? "");
+
+        var summary = await chat.CompleteAsync(
+            [new ChatMessage { Role = "user", Content = sb.ToString() }],
+            model, thinking: false, search: false, Array.Empty<string>(),
+            allowToolCalls: false, ct, options: options);
+        return (summary.Content ?? "").Trim();
+    }
+
+    private static async Task<string> SummarizeHierarchicalAsync(
+        IAgentWebChat chat,
+        IReadOnlyList<ChatMessage> middle,
+        string model,
+        AgentChatOptions? options,
+        CancellationToken ct)
+    {
+        const int chunkSize = 8;
+        var partials = new List<string>();
+        for (var i = 0; i < middle.Count; i += chunkSize)
+        {
+            var chunk = middle.Skip(i).Take(chunkSize).ToList();
+            var part = await SummarizeBlockAsync(chat, chunk, model, options, ct);
+            if (!string.IsNullOrWhiteSpace(part))
+                partials.Add(part);
+        }
+
+        if (partials.Count == 0)
+            return "";
+        if (partials.Count == 1)
+            return partials[0];
+
+        var mergeSb = new StringBuilder("Merge these segment summaries into one brief continuation summary:\n\n");
+        for (var i = 0; i < partials.Count; i++)
+            mergeSb.AppendLine("### Segment " + (i + 1)).AppendLine(partials[i]).AppendLine();
+
+        var merged = await chat.CompleteAsync(
+            [new ChatMessage { Role = "user", Content = mergeSb.ToString() }],
+            model, thinking: false, search: false, Array.Empty<string>(),
+            allowToolCalls: false, ct, options: options);
+        return (merged.Content ?? "").Trim();
     }
 
     public static int EstimateTokens(IReadOnlyList<ChatMessage> messages)

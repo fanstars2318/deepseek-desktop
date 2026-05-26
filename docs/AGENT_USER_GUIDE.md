@@ -8,7 +8,7 @@
 
 ## 1. 快速开始
 
-1. **登录网页会话**：在 DeepSeek 网页完成登录，Token 会自动同步到本地 Chat2API。
+1. **登录网页会话**：在 DeepSeek 网页完成登录，Token 会自动同步到本地 DSD API。
 2. **打开 Agent**：使用桌面侧栏 Agent 面板，直接描述任务（无需手动指定工具名）。
 3. **打开设置**：Agent 内 **设置** 按钮，或 `~/.deepseek/config.json`。
 4. **运行 doctor**：设置 → 概览 → **运行 doctor**，检查 Harness、MCP、工作区状态。

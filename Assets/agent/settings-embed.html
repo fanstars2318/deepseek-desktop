@@ -113,6 +113,37 @@
             </div>
           </div>
         </div>
+
+        <div class="se-card">
+          <h2 class="se-card-title">Auto 模型路由</h2>
+          <p class="se-hint">Auto 开启时按下方偏好顺序选择 API 管理中的供应商，再按任务复杂度选模型。</p>
+          <div class="se-toggle-list">
+            <div class="se-toggle-row">
+              <div class="se-toggle-copy">
+                <span class="se-toggle-title">优先使用偏好顺序</span>
+                <span class="se-toggle-desc">开启后先走默认/排序供应商，再匹配模型档位</span>
+              </div>
+              <label class="se-switch"><input type="checkbox" id="auto-prefer-order" checked /><span class="se-switch-ui"></span></label>
+            </div>
+          </div>
+          <div class="se-field">
+            <label for="default-provider">默认供应商（偏好首位）</label>
+            <select id="default-provider"></select>
+          </div>
+          <div class="se-field">
+            <label>供应商优先级（拖拽排序，从上到下优先）</label>
+            <ul id="provider-order-list" class="se-provider-order-list" aria-label="供应商优先级列表"></ul>
+            <p class="se-hint se-order-drag-hint">拖动左侧手柄调整顺序；列表顶部为最高优先级。</p>
+          </div>
+          <div class="se-field">
+            <label>添加到偏好列表</label>
+            <div id="provider-order-pool" class="se-provider-order-pool" aria-label="可添加的供应商"></div>
+          </div>
+          <div class="se-field">
+            <label>全部供应商</label>
+            <div id="provider-catalog-hint" class="se-hint">加载中…</div>
+          </div>
+        </div>
       </section>
 
       <!-- 多智能体 -->
@@ -275,6 +306,9 @@
               <label for="langfuse-secret-key">Secret Key</label>
               <input id="langfuse-secret-key" type="password" spellcheck="false" autocomplete="off" />
             </div>
+          </div>
+          <div class="se-actions">
+            <button type="button" class="se-btn se-btn-secondary" id="btn-test-langfuse">测试连接</button>
           </div>
         </div>
 

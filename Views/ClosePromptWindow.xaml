@@ -12,7 +12,7 @@
     <StackPanel MinWidth="380">
       <TextBlock Text="关闭 DeepSeek" Style="{StaticResource DsPageTitle}"/>
       <TextBlock Style="{StaticResource DsHint}" Margin="0,0,0,22"
-                 Text="本地 Chat2API 与 MCP 可在后台继续运行，请选择："/>
+                 Text="本地 API 管理与 MCP 可在后台继续运行，请选择："/>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
         <Button x:Name="MinimizeBtn" Content="最小化到托盘" MinWidth="120"
                 Click="MinimizeBtn_Click" Style="{StaticResource DsAccentGhostButton}" Margin="0,0,10,0"/>

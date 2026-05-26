@@ -13,7 +13,7 @@ public static class EmbeddedStackCoordinator
         WebInjectService web,
         CancellationToken ct = default)
     {
-        Chat2ApiCompat.EnsureDefaultMappings(config);
+        DsdOpenAiCompat.EnsureDefaultMappings(config);
         localApi.UpdateConfig(config);
 
         if (!string.IsNullOrWhiteSpace(config.WebUserToken) && config.EnableExternalOpenAiApi)

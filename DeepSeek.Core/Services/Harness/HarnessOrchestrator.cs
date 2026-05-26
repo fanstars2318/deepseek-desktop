@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using DeepSeekBrowser.Models;
 using DeepSeekBrowser.Services;
+using DeepSeekBrowser.Services.ApiManagement;
 using DeepSeekBrowser.Services.Harness.Interop;
 using DeepSeekBrowser.Services.Harness.Memory;
 using DeepSeekBrowser.Services.Harness.Observability;
@@ -36,9 +37,11 @@ public sealed class HarnessOrchestrator
         _userQuestions = userQuestions;
         _workspaceForHistory = workspaceForHistory;
         _tools = new HarnessToolExecutor(mcp, permission, _trace, userQuestions, workspaceForHistory, subAgents);
+        _kernel = new HarnessLoopKernel(_chat, _mcp, _tools);
     }
 
     private readonly HarnessToolExecutor _tools;
+    private readonly HarnessLoopKernel _kernel;
 
     public async Task<HarnessRunResult> RunAsync(
         HarnessRunRequest request,
@@ -69,13 +72,13 @@ public sealed class HarnessOrchestrator
             Phase = profile.InitialPhase
         };
 
-        await using var sandboxCoord = await HarnessSandboxCoordinator.BeginRunAsync(
-            state, config, workspace, _trace, callbacks.OnLog, ct);
+        await using var prep = await _kernel.PrepareRunContextAsync(request, callbacks, state, ct);
+        var sandboxCoord = prep.SandboxCoordinator;
 
         callbacks.OnLog?.Invoke("正在准备对话上下文…");
         AgentDebugLogger.Current?.Write("HARNESS", "prep: memory + MCP catalog");
 
-        var memory = HarnessMemoryLoader.Load(request.Prompt, workspace);
+        var memory = prep.Memory;
         var domain = new HarnessDomainMatch { Id = memory.DomainId, Name = memory.DomainName };
         if (playbook is not null)
             state.PlaybookId = playbook.Id;
@@ -90,32 +93,16 @@ public sealed class HarnessOrchestrator
 
         NotifyPhase(state.Phase, callbacks);
         var webSessionId = request.WebChatSessionId ?? state.WebChatSessionId;
-        var token = config.WebUserToken;
-
-        string? mcpCatalog = null;
-        try
+        var modelForRoute = string.IsNullOrWhiteSpace(config.Model) ? AgentModeHelper.AgentModel : config.Model;
+        var route = ApiRouteResolver.Resolve(config, _chat, config.AgentDefaultProviderId, modelForRoute);
+        var token = AccountCredentials.ResolveWebUserToken(route.Account, config);
+        if (ApiRouteResolver.UsesEmbeddedWeb(config, route.Provider.Id) && string.IsNullOrWhiteSpace(token))
         {
-            using var mcpTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            mcpTimeout.CancelAfter(TimeSpan.FromSeconds(5));
-            mcpCatalog = await _mcp.BuildToolCatalogTextAsync(mcpTimeout.Token);
-            var toolLineCount = mcpCatalog.Count(c => c == '\n');
-            AgentDebugLogger.Current?.Write("HARNESS", $"prep: MCP catalog lines={toolLineCount}");
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            mcpCatalog = "已连接的 MCP 工具（调用名须完全一致）：\n（工具目录加载超时，本轮可能无法调用 MCP）";
-            callbacks.OnLog?.Invoke("MCP 工具目录加载超时，继续请求模型…");
-            AgentDebugLogger.Current?.Write("HARNESS", "prep: MCP catalog timeout (5s)");
-        }
-        catch (Exception ex)
-        {
-            mcpCatalog = "已连接的 MCP 工具（调用名须完全一致）：\n（无法读取 MCP 工具列表）";
-            AgentDebugLogger.Current?.Write("HARNESS", "prep: MCP catalog error " + ex.Message);
+            throw new InvalidOperationException(
+                "请先在 API 管理中为 DeepSeek 添加账户并填写用户 Token（普通对话登录不会自动同步）。");
         }
 
-        var mcpMaxLines = Math.Clamp(config.AgentMcpCatalogMaxLines, 8, 120);
-        if (!string.IsNullOrWhiteSpace(mcpCatalog))
-            mcpCatalog = HarnessPromptBudget.TrimMcpCatalog(mcpCatalog, mcpMaxLines);
+        var mcpCatalog = prep.McpCatalog ?? "";
 
         var useThinking = config.AgentDeepThinking;
         var useSearch = config.AgentWebSearch;
@@ -219,15 +206,8 @@ public sealed class HarnessOrchestrator
                 includeXmlTools: !useOpenAiTools).ToList();
         }
 
-        if (HarnessContextCompactor.ShouldCompact(config, messages))
-        {
-            callbacks.OnLog?.Invoke("对话较长，正在压缩上下文…");
-            var tokensBefore = HarnessContextCompactor.EstimateTokens(messages);
-            await HarnessContextCompactor.CompactAsync(
-                _chat, messages, config, model, useThinking, useSearch,
-                await HarnessOpenAiToolLoop.BuildChatOptionsAsync(config, _mcp, allowTools: false, ct), ct);
-            runTracer?.RecordCompact(tokensBefore, HarnessContextCompactor.EstimateTokens(messages));
-        }
+        await _kernel.MaybeCompactAsync(
+            messages, config, model, useThinking, useSearch, runTracer, callbacks, ct);
 
         var blueprintRetried = false;
 
@@ -252,7 +232,7 @@ public sealed class HarnessOrchestrator
                 $"stream: turn {state.TurnCount} begin thinking={useThinking} search={useSearch} tools={allowTools}");
 
             var chatOptions = await HarnessOpenAiToolLoop.BuildChatOptionsAsync(
-                config, _mcp, allowTools, ct, intent, toolInventory);
+                config, _mcp, allowTools, ct, intent, toolInventory, state.Phase);
 
             var result = await StreamOneTurnAsync(
                 messages, model, config, request.RefFileIds, allowTools, useThinking, useSearch, token, webSessionId,

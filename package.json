@@ -1,0 +1,10 @@
+{
+  "name": "deepseek-desktop-assets",
+  "private": true,
+  "scripts": {
+    "lint:agent": "eslint \"Assets/agent/**/*.js\" --max-warnings 0"
+  },
+  "devDependencies": {
+    "eslint": "^9.17.0"
+  }
+}

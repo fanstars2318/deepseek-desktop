@@ -47,7 +47,7 @@ flowchart TB
     WV[WebView Agent]
     HO[HarnessOrchestrator]
     OAI2[OpenAiAgentChatClient]
-    Web[网页 Chat2API 桥]
+    Web[网页 DSD API 桥]
     WV --> HO
     HO --> OAI2
     HO --> Web

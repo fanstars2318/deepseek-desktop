@@ -16,7 +16,7 @@ $patterns = @(
 
 $excludeDirs = @(
     '\.git\', '\bin\', '\obj\', '\publish\', '\node_modules\',
-    'Assets\chat2api\', 'Assets\agent\chat2api\', 'scripts\legacy\'
+    'Assets\dsd-api\', 'Assets\agent\dsd-api\', 'scripts\legacy\'
 )
 
 $hits = @()

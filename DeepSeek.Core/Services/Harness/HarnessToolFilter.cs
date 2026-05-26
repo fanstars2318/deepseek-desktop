@@ -63,6 +63,25 @@ public static class HarnessToolFilter
         };
     }
 
+    public static HarnessToolSelection FromPhase(HarnessPhase phase, AppConfig config)
+    {
+        if (HarnessPhasePolicy.IsReadonlyPhase(phase))
+        {
+            var builtins = new HashSet<string>(CoreReadOnlyOpenAi, StringComparer.OrdinalIgnoreCase);
+            if (config.EnableSubAgents)
+            {
+                builtins.Add("delegate_agent");
+                if (config.EnableParallelExplore)
+                    builtins.Add("parallel_explore");
+            }
+            if (!string.IsNullOrWhiteSpace(config.AgentWebSearchScript))
+                builtins.Add("WebSearch");
+            return new HarnessToolSelection { BuiltinOpenAiNames = builtins, McpExposedNames = null, RestrictMcp = false };
+        }
+
+        return FullSelection(config);
+    }
+
     public static HarnessToolSelection FullSelection(AppConfig config)
     {
         var builtins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -106,6 +125,8 @@ public static class HarnessToolFilter
         if (selection.BuiltinOpenAiNames.Contains(name)) return true;
         if (name.Contains("__", StringComparison.Ordinal))
         {
+            if (name.StartsWith("composio__", StringComparison.OrdinalIgnoreCase))
+                return true;
             if (!selection.RestrictMcp) return true;
             return selection.McpExposedNames?.Contains(name) == true;
         }

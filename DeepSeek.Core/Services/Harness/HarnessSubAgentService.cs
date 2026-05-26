@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DeepSeekBrowser.Models;
 using DeepSeekBrowser.Services;
+using DeepSeekBrowser.Services.Harness.Workers;
 
 namespace DeepSeekBrowser.Services.Harness;
 
@@ -12,6 +13,7 @@ public sealed class HarnessSubAgentService
     private readonly Func<string, string, IReadOnlyList<string>, Task<bool>>? _scopeApproval;
     private readonly IUserQuestionHandler? _userQuestions;
     private readonly SemaphoreSlim _concurrency;
+    private readonly HarnessWorkerProcessPool? _workerPool;
 
     public HarnessSubAgentService(
         Func<IAgentWebChat> chatFactory,
@@ -19,13 +21,15 @@ public sealed class HarnessSubAgentService
         Func<string, string, Task<bool>> requestApproval,
         IUserQuestionHandler? userQuestions = null,
         Func<string, string, IReadOnlyList<string>, Task<bool>>? scopeApproval = null,
-        int maxConcurrent = 3)
+        int maxConcurrent = 3,
+        HarnessWorkerProcessPool? workerPool = null)
     {
         _chatFactory = chatFactory;
         _mcp = mcp;
         _requestApproval = requestApproval;
         _userQuestions = userQuestions;
         _scopeApproval = scopeApproval;
+        _workerPool = workerPool;
         _concurrency = new SemaphoreSlim(Math.Clamp(maxConcurrent, 1, 10));
     }
 
@@ -71,6 +75,15 @@ public sealed class HarnessSubAgentService
         await _concurrency.WaitAsync(ct);
         try
         {
+            if (ShouldUseWorker(request) && _workerPool is not null)
+            {
+                using var lease = await _workerPool.AcquireAsync(ct);
+                var workerResult = await lease.RunSubAgentAsync(request, ct);
+                audit.Append(workerResult.Ok ? "subagent_done" : "subagent_error",
+                    new { role = role.Id, ok = workerResult.Ok, worker = true });
+                return workerResult;
+            }
+
             var chat = _chatFactory();
             var approval = new ApprovalGate(request.Config, _requestApproval);
             var permission = PermissionGate.ForSubAgentRole(request.Config, approval, role, _scopeApproval);
@@ -106,7 +119,7 @@ public sealed class HarnessSubAgentService
             {
                 Ok = true,
                 Role = role.Id,
-                Answer = result.Answer,
+                Answer = HarnessSubAgentResultCompressor.Compress(result.Answer, request.Config),
                 AuditLogPath = audit.FilePath
             };
         }
@@ -156,6 +169,12 @@ public sealed class HarnessSubAgentService
         return sb.ToString();
     }
 
+    private static bool ShouldUseWorker(HarnessSubAgentRequest request) =>
+        request.Config.AgentWorkerEnabled
+        && (request.UseWorkerProcess
+            || request.Task.Length > 1500
+            || string.Equals(request.Role, "engineer", StringComparison.OrdinalIgnoreCase));
+
     private static string Truncate(string text, int max) =>
         text.Length <= max ? text : text[..max] + "…";
 }
@@ -168,6 +187,7 @@ public sealed class HarnessSubAgentRequest
     public string? Context { get; init; }
     public string? ParentSessionId { get; init; }
     public IReadOnlyList<string> RefFileIds { get; init; } = Array.Empty<string>();
+    public bool UseWorkerProcess { get; init; }
 }
 
 public sealed class HarnessSubAgentResult

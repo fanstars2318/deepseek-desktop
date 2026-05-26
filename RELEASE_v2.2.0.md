@@ -15,7 +15,7 @@
 
 - **WPF 单壳**：`build.ps1` 唯一发布路径，结构精简、启动路径清晰。
 - **双 WebView 工作模式**：聊天页与 Agent 页保活切换，注入与加载策略已按桌面场景优化（见 `docs/ARCHITECTURE.md`）。
-- **Harness + Chat2API + MCP**：保留 v2.0 起的 Agent 编排、本地 OpenAI 兼容层与 MCP 扩展能力。
+- **Harness + DSD API + MCP**：保留 v2.0 起的 Agent 编排、本地 OpenAI 兼容层与 MCP 扩展能力。
 - **文档整理**：README、`docs/INSTALL.md` 与 Release 说明面向 GitHub 访客重写，便于下载即用。
 
 ---

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DeepSeekBrowser.Models;
+using DeepSeekBrowser.Services.Composio;
 
 namespace DeepSeekBrowser.Services.Harness;
 
@@ -9,7 +10,8 @@ public enum HarnessPermissionScope
     Write,
     Bash,
     Mcp,
-    Network
+    Network,
+    Composio
 }
 
 public enum HarnessPermissionDecision
@@ -59,6 +61,8 @@ public static class HarnessPermissionPlan
             return [HarnessPermissionScope.Read];
         if (n is "websearch" or "web_search")
             return [HarnessPermissionScope.Network];
+        if (ComposioToolBridge.IsComposioTool(toolName))
+            return [HarnessPermissionScope.Composio];
         if (n.StartsWith("mcp_", StringComparison.OrdinalIgnoreCase) || toolName.Contains(':'))
             return [HarnessPermissionScope.Mcp];
         return [HarnessPermissionScope.Read];
@@ -72,6 +76,7 @@ public static class HarnessPermissionPlan
             HarnessPermissionScope.Read => "allow",
             HarnessPermissionScope.Write or HarnessPermissionScope.Bash => mode is "never" ? "allow" : "ask",
             HarnessPermissionScope.Mcp => mode is "never" ? "allow" : "ask",
+            HarnessPermissionScope.Composio => mode is "never" ? "allow" : "ask",
             HarnessPermissionScope.Network => "ask",
             _ => "ask"
         };

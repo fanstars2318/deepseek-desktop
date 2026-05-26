@@ -23,13 +23,13 @@ public sealed class EmbeddedStackBridgeLinkerTests
             return Task.CompletedTask;
         }
 
-        public Task<Chat2ApiHealth?> ProbeChat2ApiHealthAsync(
+        public Task<DsdApiHealth?> ProbeDsdApiHealthAsync(
             string? configWebUserToken,
             string baseUrl,
             CancellationToken ct = default)
         {
             ProbeCalls++;
-            return Task.FromResult<Chat2ApiHealth?>(new Chat2ApiHealth
+            return Task.FromResult<DsdApiHealth?>(new DsdApiHealth
             {
                 ApiListening = true,
                 ConfigLoggedIn = true,

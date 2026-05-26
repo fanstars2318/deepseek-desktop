@@ -4,11 +4,12 @@ using DeepSeekBrowser.Services.Harness;
 
 namespace DeepSeek.Core.Tests.Harness;
 
-public sealed class HarnessOrchestratorVerifyTests
+public sealed class HarnessOrchestratorVerifyTests : TestConfigIsolation
 {
     [Fact]
     public async Task RunAsync_execute_with_playbook_verify_runs_verify_phase()
     {
+        HarnessTestAccounts.EnsureDeepSeek();
         var chat = new VerifyFakeChat();
         var mcp = new McpHub();
         var approval = HarnessTestPermission.AllowAll();

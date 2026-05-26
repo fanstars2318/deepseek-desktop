@@ -1,4 +1,4 @@
-﻿# DeepSeek Desktop（deepseek_desktop）
+# DeepSeek Desktop（deepseek_desktop）
 
 本目录为 **WPF 主线** 的瘦身工作区：仅含可交付源码与资产，不含 Qt / WinUI / Bridge 实验代码。
 
@@ -9,7 +9,7 @@
 | 路径 | 说明 |
 |------|------|
 | `publish/` | 唯一编译发布输出（运行 `.\build.ps1` 生成） |
-| `Assets/` | 运行时 Web 资产（inject、agent、chat2api） |
+| `Assets/` | 运行时 Web 资产（inject、agent、dsd-api） |
 | `DeepSeek.Core/` | 共享业务与 Harness |
 | `scripts/` | 构建、验收、供应链审计 |
 

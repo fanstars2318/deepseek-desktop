@@ -84,7 +84,7 @@ try {
         }
         Write-Host "  OK inject_burst_scheduled=$burstScheduled loading_overlay_show=$loadingShows"
     } else {
-        Write-Warning "desktop-ui-trace.log not found (non-fatal)"
+        Write-Host "  OK desktop-ui-trace.log not produced (optional)"
     }
 
     if ($app.ExitCode -gt 0) {

@@ -31,7 +31,7 @@ public sealed class WebChatBridgeHost
         {
             await _webView.EnsureCoreWebView2Async(env);
             var core = _webView.CoreWebView2
-                       ?? throw new InvalidOperationException("无法初始化 Chat2API 桥接 WebView");
+                       ?? throw new InvalidOperationException("无法初始化 DSD API 桥接 WebView");
 
             core.Settings.IsWebMessageEnabled = true;
             core.Settings.IsScriptEnabled = true;
@@ -171,7 +171,7 @@ public sealed class WebChatBridgeHost
                 return;
 
             var core = _webView.CoreWebView2
-                       ?? throw new InvalidOperationException("Chat2API 桥接 WebView 未初始化");
+                       ?? throw new InvalidOperationException("DSD API 桥接 WebView 未初始化");
 
             if (!_navigated)
                 core.Navigate(AppNavigation.DeepSeekUrl);
@@ -208,13 +208,13 @@ public sealed class WebChatBridgeHost
             }
 
             throw new TimeoutException(
-                "Chat2API 桥接页未就绪：无法在 90 秒内加载 chat.deepseek.com 或注入 bridge.js。请检查网络/代理，并在「普通对话」登录 DeepSeek 后重试。");
+                "DSD API 桥接页未就绪：无法在 90 秒内加载 chat.deepseek.com 或注入 bridge.js。请检查网络/代理，并在「普通对话」登录 DeepSeek 后重试。");
         });
 
-    public Task<Chat2ApiHealth> ProbeAsync(string? configWebUserToken, CancellationToken ct = default) =>
+    public Task<DsdApiHealth> ProbeAsync(string? configWebUserToken, CancellationToken ct = default) =>
         RunOnUiAsync(async () =>
         {
-            var health = new Chat2ApiHealth
+            var health = new DsdApiHealth
             {
                 ApiListening = true,
                 ConfigLoggedIn = !string.IsNullOrWhiteSpace(configWebUserToken),
@@ -303,7 +303,7 @@ public sealed class WebChatBridgeHost
                 modelType = "expert",
                 refFileIds = refFileIds.ToArray(),
                 chatSessionId = webChatSessionId,
-                suppressToolCalls = Chat2ApiFeatureScope.HasActiveAgentRun && !allowToolCalls
+                suppressToolCalls = DsdAgentApiScope.HasActiveAgentRun && !allowToolCalls
             });
             var expr =
                 $"window.dsDesktopBridge.webChatCompletion({msgJson}, {JsonSerializer.Serialize(model)}, {optsJson})";
@@ -323,7 +323,7 @@ public sealed class WebChatBridgeHost
         string? webChatSessionId = null,
         bool allowToolCalls = false)
     {
-        var agentSerialized = Chat2ApiFeatureScope.HasActiveAgentRun;
+        var agentSerialized = DsdAgentApiScope.HasActiveAgentRun;
         if (agentSerialized)
             await AgentStreamGate.WaitAsync(ct).ConfigureAwait(false);
 
@@ -377,7 +377,7 @@ public sealed class WebChatBridgeHost
             modelType = "expert",
             refFileIds = refFileIds.ToArray(),
             chatSessionId = webChatSessionId,
-            suppressToolCalls = Chat2ApiFeatureScope.HasActiveAgentRun && !allowToolCalls
+            suppressToolCalls = DsdAgentApiScope.HasActiveAgentRun && !allowToolCalls
         });
         var streamIdJson = JsonSerializer.Serialize(hub.StreamId);
         var modelJson = JsonSerializer.Serialize(model);

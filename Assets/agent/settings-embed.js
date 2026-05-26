@@ -252,8 +252,213 @@
     const memTtl = $("memory-session-ttl");
     if (memTtl) memTtl.value = data.agentSemanticMemorySessionTtlDays ?? 7;
     $("config-path").textContent = data.configPath || "";
+    renderProviderCatalog(data);
     renderMcpList(data.mcpServers || []);
     renderFeaturePills(data);
+  }
+
+  const providerOrderUi = {
+    catalog: [],
+    orderIds: [],
+    dragId: null,
+  };
+
+  function findProvider(id) {
+    return providerOrderUi.catalog.find((p) => p.id === id);
+  }
+
+  function getProviderOrderIds() {
+    const list = $("provider-order-list");
+    if (!list) return providerOrderUi.orderIds.slice();
+    return Array.from(list.querySelectorAll(".se-provider-order-item"))
+      .map((el) => el.getAttribute("data-provider-id"))
+      .filter(Boolean);
+  }
+
+  function setProviderOrderIds(ids) {
+    providerOrderUi.orderIds = ids.filter((id, i, arr) => id && arr.indexOf(id) === i);
+    renderProviderOrderList();
+    renderProviderOrderPool();
+  }
+
+  function moveProviderInOrder(id, delta) {
+    const ids = getProviderOrderIds();
+    const idx = ids.indexOf(id);
+    if (idx < 0) return;
+    const next = idx + delta;
+    if (next < 0 || next >= ids.length) return;
+    const copy = ids.slice();
+    const tmp = copy[idx];
+    copy[idx] = copy[next];
+    copy[next] = tmp;
+    setProviderOrderIds(copy);
+  }
+
+  function addProviderToOrder(id) {
+    const ids = getProviderOrderIds();
+    if (ids.includes(id)) return;
+    setProviderOrderIds(ids.concat(id));
+  }
+
+  function removeProviderFromOrder(id) {
+    setProviderOrderIds(getProviderOrderIds().filter((x) => x !== id));
+  }
+
+  function renderProviderOrderList() {
+    const list = $("provider-order-list");
+    if (!list) return;
+    list.replaceChildren();
+    const ids = providerOrderUi.orderIds;
+    ids.forEach((id, index) => {
+      const p = findProvider(id) || { id: id, name: id, ready: false, models: [] };
+      const li = document.createElement("li");
+      li.className = "se-provider-order-item";
+      li.setAttribute("data-provider-id", id);
+      li.draggable = true;
+
+      const models = (p.models || []).slice(0, 3).join(", ");
+      const more = (p.models || []).length > 3 ? "…" : "";
+
+      li.innerHTML =
+        '<span class="se-provider-order-handle" title="拖拽排序" aria-hidden="true">⋮⋮</span>' +
+        '<span class="se-provider-order-rank">' +
+        (index + 1) +
+        "</span>" +
+        '<div class="se-provider-order-body">' +
+        '<div class="se-provider-order-title">' +
+        escapeHtml(p.name || id) +
+        "</div>" +
+        '<div class="se-provider-order-meta">' +
+        escapeHtml(id) +
+        (p.ready ? " · 就绪" : " · 未配置凭证") +
+        (models ? " · " + escapeHtml(models + more) : "") +
+        "</div>" +
+        "</div>" +
+        '<div class="se-provider-order-actions">' +
+        '<button type="button" class="se-provider-order-btn" data-action="up" title="上移"' +
+        (index === 0 ? " disabled" : "") +
+        ">↑</button>" +
+        '<button type="button" class="se-provider-order-btn" data-action="down" title="下移"' +
+        (index === ids.length - 1 ? " disabled" : "") +
+        ">↓</button>" +
+        '<button type="button" class="se-provider-order-btn" data-action="remove" title="移出列表">×</button>' +
+        "</div>";
+
+      li.addEventListener("dragstart", (e) => {
+        providerOrderUi.dragId = id;
+        li.classList.add("is-dragging");
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", id);
+        }
+      });
+      li.addEventListener("dragend", () => {
+        providerOrderUi.dragId = null;
+        li.classList.remove("is-dragging");
+        list.querySelectorAll(".se-provider-order-item").forEach((el) => {
+          el.classList.remove("is-drag-over");
+        });
+      });
+      li.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        if (providerOrderUi.dragId && providerOrderUi.dragId !== id) {
+          li.classList.add("is-drag-over");
+        }
+      });
+      li.addEventListener("dragleave", () => li.classList.remove("is-drag-over"));
+      li.addEventListener("drop", (e) => {
+        e.preventDefault();
+        li.classList.remove("is-drag-over");
+        const from = providerOrderUi.dragId || (e.dataTransfer && e.dataTransfer.getData("text/plain"));
+        if (!from || from === id) return;
+        const next = getProviderOrderIds().filter((x) => x !== from);
+        const toIdx = next.indexOf(id);
+        if (toIdx < 0) return;
+        next.splice(toIdx, 0, from);
+        setProviderOrderIds(next);
+      });
+
+      li.querySelector('[data-action="up"]')?.addEventListener("click", () => moveProviderInOrder(id, -1));
+      li.querySelector('[data-action="down"]')?.addEventListener("click", () => moveProviderInOrder(id, 1));
+      li.querySelector('[data-action="remove"]')?.addEventListener("click", () => removeProviderFromOrder(id));
+
+      list.appendChild(li);
+    });
+  }
+
+  function renderProviderOrderPool() {
+    const pool = $("provider-order-pool");
+    if (!pool) return;
+    pool.replaceChildren();
+    const inOrder = new Set(getProviderOrderIds());
+    providerOrderUi.catalog
+      .filter((p) => !inOrder.has(p.id))
+      .forEach((p) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "se-provider-pool-chip";
+        btn.innerHTML =
+          '<span class="se-status-dot' +
+          (p.ready ? " is-ready" : "") +
+          '"></span>' +
+          "<span>" +
+          escapeHtml(p.name || p.id) +
+          '</span><span class="se-pool-id">' +
+          escapeHtml(p.id) +
+          "</span>";
+        btn.addEventListener("click", () => addProviderToOrder(p.id));
+        pool.appendChild(btn);
+      });
+  }
+
+  function renderProviderCatalog(data) {
+    const hint = $("provider-catalog-hint");
+    const sel = $("default-provider");
+    const preferEl = $("auto-prefer-order");
+    const providers = Array.isArray(data.agentProviderCatalog) ? data.agentProviderCatalog : [];
+    providerOrderUi.catalog = providers;
+
+    if (preferEl) preferEl.checked = data.agentAutoPreferProviderOrder !== false;
+
+    let order = Array.isArray(data.agentAutoProviderOrder) ? data.agentAutoProviderOrder.slice() : [];
+    if (!order.length && data.agentDefaultProviderId) order = [data.agentDefaultProviderId];
+    order = order.filter((id, i, arr) => id && arr.indexOf(id) === i);
+    providerOrderUi.orderIds = order.filter((id) => providers.some((p) => p.id === id));
+    renderProviderOrderList();
+    renderProviderOrderPool();
+
+    if (sel) {
+      sel.replaceChildren();
+      providers.forEach((p) => {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.name + (p.ready ? "" : "（未就绪）");
+        sel.appendChild(opt);
+      });
+      if (data.agentDefaultProviderId) sel.value = data.agentDefaultProviderId;
+      if (!sel.onchange) {
+        sel.addEventListener("change", () => {
+          const id = sel.value;
+          if (!id) return;
+          const ids = getProviderOrderIds().filter((x) => x !== id);
+          setProviderOrderIds([id].concat(ids));
+        });
+      }
+    }
+    if (hint) {
+      if (!providers.length) {
+        hint.textContent = "暂无供应商，请先在 API 管理中添加。";
+        return;
+      }
+      hint.innerHTML = providers
+        .map((p) => {
+          const models = (p.models || []).slice(0, 4).join(", ");
+          const more = (p.models || []).length > 4 ? "…" : "";
+          const tag = p.ready ? "就绪" : "未配置凭证";
+          return "• " + p.id + " — " + p.name + " [" + tag + "]" + (models ? " · " + models + more : "");
+        })
+        .join("<br/>");
+    }
   }
 
   function collectSavePayload() {
@@ -306,6 +511,9 @@
       agentSemanticMemoryTopK: parseInt($("semantic-topk")?.value, 10) || 8,
       agentEmbeddingModel: $("embedding-model")?.value?.trim() || "",
       agentSemanticMemorySessionTtlDays: parseInt($("memory-session-ttl")?.value, 10) || 0,
+      agentAutoPreferProviderOrder: $("auto-prefer-order")?.checked !== false,
+      agentDefaultProviderId: $("default-provider")?.value || "deepseek",
+      agentAutoProviderOrder: getProviderOrderIds(),
     };
   }
 
@@ -419,6 +627,19 @@
     $("btn-docs")?.addEventListener("click", () => post("settingsOpenDocs", {}));
     $("btn-copy-config")?.addEventListener("click", () => post("settingsCopyConfigPath", {}));
     $("btn-open-config")?.addEventListener("click", () => post("settingsOpenConfig", {}));
+    $("btn-test-langfuse")?.addEventListener("click", async () => {
+      try {
+        const res = await postAsync("settingsTestLangfuse", {
+          agentLangfuseHost: $("langfuse-host")?.value?.trim(),
+          agentLangfusePublicKey: $("langfuse-public-key")?.value?.trim(),
+          agentLangfuseSecretKey: $("langfuse-secret-key")?.value?.trim(),
+          agentLangfuseProject: $("langfuse-project")?.value?.trim(),
+        });
+        alert(res.message || (res.ok ? "连接成功" : "连接失败"));
+      } catch (e) {
+        alert(e.message || "测试失败");
+      }
+    });
     $("btn-doctor")?.addEventListener("click", async () => {
       try {
         const res = await postAsync("settingsRunDoctor", {});

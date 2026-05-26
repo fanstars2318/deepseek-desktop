@@ -83,21 +83,22 @@ button.ds-native-btn.ds-on .ds-native-icon {
 .ds-native-dot.ds-online { background: #22c55e !important; }
 .ds-native-dot.ds-offline { background: #9ca3af !important; }
 
-/* 右上角固定：与 Agent 页 #mode-float 同款（顶栏 10px / 右 16px） */
+/* 输入区右下角：与 Agent 页 #mode-float 同款 */
 #ds-agent-mode-float.ds-mode-float,
 #ds-agent-mode-float.ds-agent-mode-float,
 button.ds-agent-mode-float-btn {
   position: fixed !important;
-  top: 10px !important;
-  right: 16px !important;
+  top: auto !important;
   left: auto !important;
-  bottom: auto !important;
+  bottom: 96px !important;
+  right: 20px !important;
   z-index: 2147483647 !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
   gap: 6px !important;
   height: 34px !important;
+  min-width: 88px !important;
   line-height: 1 !important;
   box-sizing: border-box !important;
   padding: 0 14px !important;
@@ -153,6 +154,31 @@ button.ds-agent-mode-float-btn {
   line-height: 1 !important;
   display: inline-flex !important;
   align-items: center !important;
+  justify-content: center !important;
+  min-width: 42px !important;
+  text-align: center !important;
+}
+
+#ds-settings-top {
+  position: fixed !important;
+  top: 10px !important;
+  right: 16px !important;
+  left: auto !important;
+  bottom: auto !important;
+  z-index: 2147483647 !important;
+  width: 34px !important;
+  height: 34px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--ds-border, #e5e7eb) !important;
+  background: rgba(255, 255, 255, 0.97) !important;
+  color: var(--ds-text, #374151) !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  box-shadow: var(--ds-shadow-md, 0 4px 16px rgba(0, 0, 0, 0.06)) !important;
+  padding: 0 !important;
 }
 
 .ds-mode-wrap {

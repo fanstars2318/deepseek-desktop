@@ -10,6 +10,7 @@ public static class ConfigStore
     private static readonly object SaveGate = new();
     private static string? _cachedJson;
     private static long _cachedWriteTicks = -1;
+    private static string? _cachedConfigPath;
 
     private static string ConfigDir
     {
@@ -35,17 +36,22 @@ public static class ConfigStore
         {
             try
             {
-                if (!File.Exists(ConfigFilePath))
+                var configPath = ConfigFilePath;
+                if (!string.Equals(_cachedConfigPath, configPath, StringComparison.OrdinalIgnoreCase))
+                    InvalidateCache();
+                _cachedConfigPath = configPath;
+
+                if (!File.Exists(configPath))
                 {
                     InvalidateCache();
                     return new AppConfig();
                 }
 
-                var writeTicks = File.GetLastWriteTimeUtc(ConfigFilePath).Ticks;
+                var writeTicks = File.GetLastWriteTimeUtc(configPath).Ticks;
                 if (_cachedJson is not null && writeTicks == _cachedWriteTicks)
                     return DeserializeCached(_cachedJson);
 
-                var json = File.ReadAllText(ConfigFilePath);
+                var json = File.ReadAllText(configPath);
                 _cachedJson = json;
                 _cachedWriteTicks = writeTicks;
                 return DeserializeCached(json);
@@ -62,6 +68,7 @@ public static class ConfigStore
     {
         _cachedJson = null;
         _cachedWriteTicks = -1;
+        _cachedConfigPath = null;
     }
 
     private static AppConfig DeserializeCached(string json)

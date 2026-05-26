@@ -1,5 +1,5 @@
 /**
- * 官网普通对话页：右上角 Agent/普通 切换（独立于 overlay.js）。
+ * 官网普通对话页：输入区右下角 Agent/普通 切换（独立于 overlay.js）。
  * 支持 about:blank → chat.deepseek.com SPA；可被 C# ExecuteScript 重复执行。
  */
 (function () {
@@ -23,15 +23,53 @@
       return /\/sign[-_]?in|\/login|\/register|\/auth\b/.test(path);
     }
 
+    function findChatInput() {
+      return (
+        document.querySelector('[role="textbox"][placeholder*="DeepSeek"]') ||
+        document.querySelector('textarea[placeholder*="DeepSeek"]') ||
+        document.querySelector('[contenteditable="true"][placeholder*="DeepSeek"]') ||
+        document.querySelector('[role="textbox"]') ||
+        document.querySelector("textarea") ||
+        null
+      );
+    }
+
+    function measureFloaterAnchor() {
+      var input = findChatInput();
+      var bottom = 96;
+      var right = 20;
+      if (input) {
+        var r = input.getBoundingClientRect();
+        if (r.height > 0 && r.width > 0) {
+          bottom = Math.max(72, window.innerHeight - r.top + 12);
+          right = Math.max(16, window.innerWidth - r.right);
+        }
+      }
+      return { bottom: bottom, right: right };
+    }
+
+    function pinFloater(btn) {
+      if (!btn) return;
+      var anchor = measureFloaterAnchor();
+      btn.style.setProperty("position", "fixed", "important");
+      btn.style.setProperty("top", "auto", "important");
+      btn.style.setProperty("bottom", anchor.bottom + "px", "important");
+      btn.style.setProperty("right", anchor.right + "px", "important");
+      btn.style.setProperty("left", "auto", "important");
+      btn.style.setProperty("min-width", "88px", "important");
+      btn.style.setProperty("height", "34px", "important");
+      btn.style.setProperty("box-sizing", "border-box", "important");
+    }
+
     function injectStyle() {
       if (document.getElementById(STYLE_ID)) return;
       var s = document.createElement("style");
       s.id = STYLE_ID;
       s.textContent =
         "#ds-desktop-overlay-root{position:fixed!important;inset:0!important;pointer-events:none!important;z-index:2147483647!important}" +
-        "#ds-agent-mode-float.ds-chat-mode-floater{position:fixed!important;top:10px!important;right:16px!important;left:auto!important;" +
+        "#ds-agent-mode-float.ds-chat-mode-floater{position:fixed!important;top:auto!important;left:auto!important;" +
         "z-index:2147483647!important;pointer-events:auto!important;display:inline-flex!important;align-items:center!important;" +
-        "justify-content:center!important;gap:6px!important;height:34px!important;padding:0 14px!important;border-radius:9999px!important;" +
+        "justify-content:center!important;gap:6px!important;height:34px!important;min-width:88px!important;padding:0 14px!important;border-radius:9999px!important;" +
         "border:1px solid #e5e7eb!important;background:rgba(255,255,255,.97)!important;color:#374151!important;" +
         "font-size:13px!important;line-height:1!important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif!important;" +
         "cursor:pointer!important;box-shadow:0 4px 16px rgba(0,0,0,.06)!important;visibility:visible!important;opacity:1!important;" +
@@ -40,7 +78,8 @@
         "box-sizing:border-box!important;-webkit-app-region:no-drag!important}" +
         "#ds-agent-mode-float.ds-chat-mode-floater.ds-on{border-color:#4d6bfe!important;color:#4d6bfe!important;background:#eef2ff!important}" +
         "#ds-agent-mode-float .ds-mode-float-icon{display:inline-flex!important;align-items:center!important;width:16px!important;height:16px!important;color:#6b7280!important}" +
-        "#ds-agent-mode-float.ds-on .ds-mode-float-icon{color:#4d6bfe!important}";
+        "#ds-agent-mode-float.ds-on .ds-mode-float-icon{color:#4d6bfe!important}" +
+        "#ds-agent-mode-float-label{min-width:42px!important;text-align:center!important;display:inline-flex!important;justify-content:center!important}";
       var p = document.head || document.documentElement;
       if (p) p.appendChild(s);
     }
@@ -97,6 +136,7 @@
       btn.style.setProperty("display", "inline-flex", "important");
       btn.style.setProperty("visibility", "visible", "important");
       btn.style.setProperty("opacity", "1", "important");
+      pinFloater(btn);
 
       if (window.DsWorkMode && window.DsWorkMode.getState) {
         var st = window.DsWorkMode.getState();
@@ -119,10 +159,24 @@
       if (window.DsWorkMode.flushPending) window.DsWorkMode.flushPending();
     }
 
+    function ensureRepositionHooks() {
+      if (window.__dsChatFloaterReposBound) return;
+      window.__dsChatFloaterReposBound = true;
+      window.addEventListener("resize", function () {
+        var btn = document.getElementById("ds-agent-mode-float");
+        if (btn) pinFloater(btn);
+      });
+      setInterval(function () {
+        var btn = document.getElementById("ds-agent-mode-float");
+        if (btn) pinFloater(btn);
+      }, 500);
+    }
+
     window.__dsChatModeFloaterBoot = function boot() {
       if (!isChatHost()) return;
       mount();
       bindWorkMode();
+      ensureRepositionHooks();
       if (!window.__dsChatModeFloaterMo && document.documentElement) {
         window.__dsChatModeFloaterMo = new MutationObserver(function () {
           if (isChatHost() && !document.getElementById("ds-agent-mode-float")) mount();

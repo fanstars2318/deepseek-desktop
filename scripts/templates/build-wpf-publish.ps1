@@ -1,4 +1,4 @@
-﻿# deepseek_desktop — WPF 单入口构建（无 Qt / WinUI / Bridge）
+# deepseek_desktop — WPF 单入口构建（无 Qt / WinUI / Bridge）
 param(
     [switch]$DeployToDesktop,
     [string]$DeployDir = ""
@@ -20,11 +20,11 @@ if (Test-Path $out) {
 }
 
 Push-Location $root
-if (Test-Path (Join-Path $root "scripts\build-chat2api-ui.ps1")) {
-    & (Join-Path $root "scripts\build-chat2api-ui.ps1")
+if (Test-Path (Join-Path $root "scripts\build-dsd-api-ui.ps1")) {
+    & (Join-Path $root "scripts\build-dsd-api-ui.ps1")
 }
-if (Test-Path (Join-Path $root "scripts\sync-agent-chat2api.ps1")) {
-    & (Join-Path $root "scripts\sync-agent-chat2api.ps1") -Root $root
+if (Test-Path (Join-Path $root "scripts\sync-agent-dsd-api.ps1")) {
+    & (Join-Path $root "scripts\sync-agent-dsd-api.ps1") -Root $root
 }
 
 dotnet publish DeepSeekBrowser.csproj -c Release -r win-x64 --self-contained false -o $out "-p:UseAppHost=true"

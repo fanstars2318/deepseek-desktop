@@ -3,7 +3,9 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using DeepSeekBrowser.Models;
+using DeepSeekBrowser.Services.ApiManagement;
 using DeepSeekBrowser.Services.Harness;
+using DeepSeekBrowser.Services.Harness.Observability;
 using DeepSeekBrowser.Views;
 
 namespace DeepSeekBrowser.Services;
@@ -82,6 +84,9 @@ internal sealed class EmbeddedSettingsSupport
                 case "settingsOpenConfig":
                     OpenConfigFile();
                     break;
+                case "settingsTestLangfuse":
+                    await TestLangfuseAsync(msg);
+                    break;
             }
         }
         catch (Exception ex)
@@ -93,26 +98,26 @@ internal sealed class EmbeddedSettingsSupport
     private object BuildPayload()
     {
         var config = _getConfig();
-        Chat2ApiCompat.EnsureDefaultMappings(config);
-        var mode = string.Equals(config.Chat2ApiSessionMode, "multi", StringComparison.OrdinalIgnoreCase)
+        DsdOpenAiCompat.EnsureDefaultMappings(config);
+        var mode = string.Equals(config.DsdApiSessionMode, "multi", StringComparison.OrdinalIgnoreCase)
             ? "多轮" : "单轮";
         var chat2ApiSummary =
-            $"内嵌 Chat2API · {Chat2ApiCompat.DefaultModel} · 会话 {mode} · {config.ModelMappings.Count} 条模型别名" +
+            $"内嵌 API 管理 · {DsdOpenAiCompat.DefaultModel} · 会话 {mode} · {config.ModelMappings.Count} 条模型别名" +
             (config.EnableLocalApiKeyAuth ? " · API Key 认证已启用" : "") +
-            " · 网页登录后自动同步 Token";
+            " · 请在 API 管理中手动添加账户";
 
         var serviceSummary =
-            "对话桥接与 Agent Harness 已在进程内运行；网页登录 Token 自动同步至 Chat2API。";
+            "对话桥接与 Agent Harness 已在进程内运行；API 账户与普通对话网页登录相互独立。";
 
         var harnessInfo =
             "DSD Harness（C# 进程内）· Execute / Blueprint 工作流\n" +
-            "LLM：网页桥 + Chat2API · 工具：文件/Shell + MCP\n" +
+            "LLM：网页桥 + API 管理 · 工具：文件/Shell + MCP\n" +
             $"沙盒：本地工作区（懒加载={(config.AgentSandboxLazyInit ? "是" : "否")}）";
 
         return new
         {
             ok = true,
-            loggedIn = !string.IsNullOrWhiteSpace(config.WebUserToken),
+            loggedIn = AccountCredentials.HasActiveDeepSeekApiAccount(config),
             localApiUrl = $"http://127.0.0.1:{config.LocalApiPort}/v1",
             localApiPort = config.LocalApiPort,
             maxAgentSteps = config.MaxAgentSteps,
@@ -167,6 +172,13 @@ internal sealed class EmbeddedSettingsSupport
             agentSemanticMemoryTopK = config.AgentSemanticMemoryTopK,
             agentSemanticMemorySessionTtlDays = config.AgentSemanticMemorySessionTtlDays,
             agentEmbeddingModel = config.AgentEmbeddingModel ?? "",
+            agentModelAuto = config.AgentModelAuto,
+            agentManualModel = config.AgentManualModel,
+            agentManualProviderId = config.AgentManualProviderId,
+            agentAutoPreferProviderOrder = config.AgentAutoPreferProviderOrder,
+            agentAutoProviderOrder = config.AgentAutoProviderOrder,
+            agentDefaultProviderId = config.AgentDefaultProviderId,
+            agentProviderCatalog = AutoProviderPool.ToCatalogDto(config),
             configPath = ConfigStore.ConfigFilePath,
             mcpServers = config.McpServers.Select(BuildMcpDto).ToList()
         };
@@ -294,6 +306,23 @@ internal sealed class EmbeddedSettingsSupport
             config.AgentSemanticMemorySessionTtlDays = Math.Max(0, memTtl);
         if (msg.TryGetProperty("agentEmbeddingModel", out var embModelEl))
             config.AgentEmbeddingModel = embModelEl.GetString() ?? config.AgentEmbeddingModel;
+        if (msg.TryGetProperty("agentAutoPreferProviderOrder", out var autoPrefEl))
+            config.AgentAutoPreferProviderOrder = autoPrefEl.GetBoolean();
+        if (msg.TryGetProperty("agentDefaultProviderId", out var defProvEl))
+        {
+            var id = defProvEl.GetString();
+            if (!string.IsNullOrWhiteSpace(id))
+                config.AgentDefaultProviderId = id.Trim();
+        }
+        if (msg.TryGetProperty("agentAutoProviderOrder", out var orderEl)
+            && orderEl.ValueKind == JsonValueKind.Array)
+        {
+            config.AgentAutoProviderOrder = orderEl.EnumerateArray()
+                .Select(e => e.GetString())
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(s => s!.Trim())
+                .ToList();
+        }
 
         if (AgentChatClientFactory.UsesDirectApi(config))
             config.AgentToolCallingProtocol = AgentToolCallingProtocols.OpenAi;
@@ -382,12 +411,14 @@ internal sealed class EmbeddedSettingsSupport
     {
         var config = _getConfig();
         AgentDesktopConfigSync.Apply(config);
-        var loggedIn = !string.IsNullOrWhiteSpace(config.WebUserToken);
+        var apiAccounts = AccountCredentials.CountActiveAccounts("deepseek", config);
+        var webLoggedIn = !string.IsNullOrWhiteSpace(config.WebUserToken);
         var mcp = config.McpServers.Count(s => s.Enabled);
         var text =
             $"Harness: native (in-process)\n" +
             $"默认工作流: {config.DefaultAgentStrategy}\n" +
-            $"网页登录: {(loggedIn ? "是" : "否")}\n" +
+            $"普通对话网页登录: {(webLoggedIn ? "是" : "否")}\n" +
+            $"API 管理 DeepSeek 账户: {apiAccounts}\n" +
             $"MCP 已启用: {mcp}\n" +
             $"沙盒: 本地工作区（懒加载={(config.AgentSandboxLazyInit ? "是" : "否")}）\n" +
             $"工作区: {(string.IsNullOrWhiteSpace(config.AgentWorkspaceRoot) ? "默认" : config.AgentWorkspaceRoot)}\n" +
@@ -435,6 +466,31 @@ internal sealed class EmbeddedSettingsSupport
             FileName = ConfigStore.ConfigFilePath,
             UseShellExecute = true
         });
+    }
+
+    private async Task TestLangfuseAsync(JsonElement msg)
+    {
+        var config = _getConfig();
+        ApplyLangfuseFromMessage(msg, config);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var ok = await HarnessLangfuseExporter.PingAsync(config, cts.Token);
+        await ReplyAsync(msg, "settingsLangfuseTestResult", new
+        {
+            ok,
+            message = ok ? "Langfuse 连接成功。" : "连接失败，请检查 Host、Public Key 与 Secret Key。"
+        });
+    }
+
+    private static void ApplyLangfuseFromMessage(JsonElement msg, AppConfig config)
+    {
+        if (msg.TryGetProperty("agentLangfuseHost", out var hostEl))
+            config.AgentLangfuseHost = hostEl.GetString() ?? config.AgentLangfuseHost;
+        if (msg.TryGetProperty("agentLangfusePublicKey", out var pubEl))
+            config.AgentLangfusePublicKey = pubEl.GetString() ?? "";
+        if (msg.TryGetProperty("agentLangfuseSecretKey", out var secEl))
+            config.AgentLangfuseSecretKey = secEl.GetString() ?? "";
+        if (msg.TryGetProperty("agentLangfuseProject", out var projEl))
+            config.AgentLangfuseProject = projEl.GetString() ?? "";
     }
 
     private Task ReplyAsync(JsonElement msg, string type, object payload, bool ok = true, string? error = null)

@@ -12,7 +12,7 @@ namespace DeepSeekBrowser.Services;
 /// <summary>
 /// 对话页与 Agent 页各用独立 WebView2，切换时仅显示/隐藏，避免反复 Navigate 导致卡顿。
 /// </summary>
-public sealed class DesktopWebHost : IDdWebPages
+public sealed class DesktopWebHost : IDesktopWebHost
 {
     private readonly WebView2 _chatView;
     private readonly WebView2 _agentView;
@@ -92,25 +92,9 @@ public sealed class DesktopWebHost : IDdWebPages
         await WorkMode.BroadcastAsync();
     }
 
-    public bool IsAgentHostPage => IsAgentVisible;
-
     public string? AgentSource => _agentView.CoreWebView2?.Source;
 
     public WebInjectService ActiveInject => IsAgentVisible ? Agent : Chat;
-
-    public Task NavigateAgentAsync(string url)
-    {
-        RunOnUiSync(() =>
-        {
-            ShowAgent();
-            var core = _agentView.CoreWebView2;
-            if (core is null) return;
-            var current = core.Source ?? "";
-            if (!string.Equals(current, url, StringComparison.OrdinalIgnoreCase))
-                core.Navigate(url);
-        });
-        return Task.CompletedTask;
-    }
 
     public Task PostToPageAsync(object message) => ActiveInject.PostToPageAsync(message);
 
@@ -151,13 +135,9 @@ public sealed class DesktopWebHost : IDdWebPages
     }
 
     public void ScheduleWorkModeBroadcastRetries(CancellationToken ct = default) =>
-        _ = BroadcastWorkModeStateAsync(includeImmediate: false, ct);
-
-    public Task AfterShowChatAsync(string workMode, CancellationToken ct = default)
-    {
-        WorkMode.SetModeFromConfig(workMode);
-        return WorkMode.ShowChatSurfaceAsync(ct);
-    }
+        HostFireAndForget.Run(
+            () => BroadcastWorkModeStateAsync(includeImmediate: false, ct),
+            "workModeBroadcastRetries");
 
     public Task PushAgentAuthHintAsync(bool loggedIn) => Agent.PushAgentAuthHintAsync(loggedIn);
 
@@ -172,9 +152,9 @@ public sealed class DesktopWebHost : IDdWebPages
     public Task EnsureApiBridgeReadyAsync(CancellationToken ct = default) =>
         Chat.EnsureApiBridgeReadyAsync(ct);
 
-    public Task<Chat2ApiHealth?> ProbeChat2ApiHealthAsync(string? configWebUserToken, string baseUrl,
+    public Task<DsdApiHealth?> ProbeDsdApiHealthAsync(string? configWebUserToken, string baseUrl,
         CancellationToken ct = default) =>
-        Chat.ProbeChat2ApiHealthAsync(configWebUserToken, baseUrl, ct);
+        Chat.ProbeDsdApiHealthAsync(configWebUserToken, baseUrl, ct);
 
     public Task<string?> TryReadUserTokenAsync() => Chat.TryReadUserTokenAsync();
 

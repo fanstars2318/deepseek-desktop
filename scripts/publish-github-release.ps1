@@ -1,8 +1,8 @@
 # Publish DeepSeek Desktop source + release zip to GitHub.
 # Requires: git, network to github.com, GitHub CLI (gh) authenticated via `gh auth login`
 param(
-    [string]$Version = "2.2.0",
-    [string]$Tag = "v2.2.0",
+    [string]$Version = "2.3.0",
+    [string]$Tag = "v2.3.0",
     [switch]$SkipBuild,
     [switch]$SkipPush
 )
@@ -59,7 +59,7 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     exit 0
 }
 
-$desc = "DeepSeek Desktop (DD): WPF/Qt Hybrid shell + C# Harness + Chat2API + MCP, local workspace sandbox."
+$desc = "DeepSeek Desktop (DD): WPF/Qt Hybrid shell + C# Harness + DSD API + MCP, local workspace sandbox."
 Write-Host "Updating repo description ..."
 gh repo edit fanstars2318/deepseek-desktop --description $desc 2>$null
 

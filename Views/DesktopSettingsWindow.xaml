@@ -33,7 +33,7 @@
       <TabItem Header="常规">
         <ScrollViewer Style="{StaticResource DsScrollViewer}" VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="0,8,4,16">
-            <TextBlock Text="Chat2API" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,10"/>
+            <TextBlock Text="API 管理" Style="{StaticResource DsSectionTitle}" Margin="0,0,0,10"/>
             <Border Style="{StaticResource DsCard}" Margin="{StaticResource DsSectionGap}">
               <Grid>
                 <Grid.RowDefinitions>
@@ -63,7 +63,7 @@
                   <TextBox x:Name="MaxStepsBox" Style="{StaticResource DsTextBox}"/>
                 </StackPanel>
                 <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,16,0,0">
-                  <TextBlock x:Name="Chat2ApiSummaryText" Style="{StaticResource DsHint}" TextWrapping="Wrap"/>
+                  <TextBlock x:Name="DsdApiSummaryText" Style="{StaticResource DsHint}" TextWrapping="Wrap"/>
                 </StackPanel>
               </Grid>
             </Border>
@@ -114,7 +114,7 @@
                            Text="用户只需描述任务，无需手动指定 /skill 或工具名。"/>
                 <CheckBox x:Name="AgentAutoIntentRoutingCheck" Content="自动分析需求并匹配 Skill / 工具"
                           Style="{StaticResource DsCheckBox}"/>
-                <CheckBox x:Name="AgentIntentUseLlmPlannerCheck" Content="使用模型生成意图规划（默认关，省 token）"
+                <CheckBox x:Name="AgentIntentUseLlmPlannerCheck" Content="使用模型生成意图规划（默认开；可用工具子集省 token）"
                           Style="{StaticResource DsCheckBox}" Margin="20,8,0,0"/>
               </StackPanel>
             </Border>

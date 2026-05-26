@@ -29,6 +29,12 @@
     selectedIds: new Set(),
     deepThink: false,
     smartSearch: false,
+    modelAuto: true,
+    model: "deepseek-v4-pro",
+    providerId: "deepseek",
+    providerCatalog: [],
+    lastResolvedModel: null,
+    lastResolvedProvider: null,
     embeddedPanel: null,
     playbookId: null,
     skillId: null,
@@ -45,18 +51,44 @@
     window.__dsAgentWebChatSessionId = id;
   }
 
+  const embeddedUiBuild =
+    window.DsAgentEmbed?.embeddedUiBuild ??
+    function () {
+      const m = /[?&]build=(\d+)/.exec(location.search || "");
+      return m ? m[1] : "0";
+    };
+
+  const embedUrl =
+    window.DsAgentEmbed?.embedUrl ??
+    function (path) {
+      const sep = path.indexOf("?") >= 0 ? "&" : "?";
+      return "https://ds-agent.local/" + path + sep + "build=" + embeddedUiBuild();
+    };
+
   const EMBED_URLS = {
-    settings: "https://ds-agent.local/settings-embed.html",
-    automations: "https://ds-agent.local/automations-embed.html",
-    // 与 Agent 页同源，避免 WebView2 在 iframe 中加载独立虚拟域 ds-chat2api.local 白屏
-    chat2api: "https://ds-agent.local/chat2api/index.html",
+    settings: () => embedUrl("settings-embed.html"),
+    automations: () => embedUrl("automations-embed.html"),
+    // 与 Agent 页同源，避免 WebView2 在 iframe 中加载独立虚拟域 dsdp-api.local 白屏
+    apiManagement: () => embedUrl("dsd-api/index.html") + "#/",
   };
 
   const EMBED_TITLES = {
     settings: "设置",
     automations: "Automations",
-    chat2api: "API 管理",
+    apiManagement: "API 管理",
   };
+
+  function resolveEmbedUrl(panel) {
+    const entry = EMBED_URLS[panel];
+    return typeof entry === "function" ? entry() : entry;
+  }
+
+  function isDsdApiIframeCurrent() {
+    const iframe = $("embedded-frame");
+    const src = iframe?.src || "";
+    if (src.indexOf("/dsd-api/") < 0) return false;
+    return src.indexOf("build=" + embeddedUiBuild()) >= 0;
+  }
 
   const AUTOMATIONS_INTRO_KEY = "ds-agent-automations-intro-dismissed";
 
@@ -92,7 +124,8 @@
           msg.type === "agentWorkspaceFiles" ||
           msg.type === "agentHarnessReload" ||
             msg.type === "agentWorkspace" ||
-            msg.type === "agentAutomation"
+            msg.type === "agentAutomation" ||
+            msg.type === "agentProviderCatalog"
           ? msg
           : msg;
     pendingRequests.get(msg.reqId)(payload);
@@ -711,7 +744,8 @@
       /^线程:/.test(t) ||
       /^回合:/.test(t) ||
       /Runtime API/i.test(t) ||
-      /Chat2API/i.test(t) ||
+      /API 管理/i.test(t) ||
+      /DSD API/i.test(t) ||
       /MCP \/ Skills/i.test(t) ||
       /^正努力工作/.test(t) ||
       /^正在整理回复/.test(t) ||
@@ -1329,7 +1363,7 @@
       "/reload  热重载 Playbook / Skill 缓存\n" +
       "/react、/plan  兼容旧命令\n" +
       "/chat   返回普通对话\n\n" +
-      "推理：本地 Chat2API（须先在网页登录）\n" +
+      "推理：本地 API 管理（须先在网页登录）\n" +
       "互操作：MCP（含 ~/.cursor/mcp.json）· SKILL.md · OpenAI tools schema"
     );
   }
@@ -1419,9 +1453,34 @@
     },
   ];
 
+  const MODEL_OPTIONS = [
+    { id: "deepseek-v4-pro", label: "deepseek-v4-pro", desc: "旗舰均衡（Auto 默认档）" },
+    { id: "deepseek-v4-flash", label: "deepseek-v4-flash", desc: "快速 · 简单问答" },
+    { id: "deepseek-reasoner", label: "deepseek-reasoner", desc: "深度推理" },
+    { id: "deepseek-v4-pro-search", label: "deepseek-v4-pro-search", desc: "联网搜索增强" },
+    { id: "deepseek-chat", label: "deepseek-chat", desc: "通用对话" },
+    { id: "DeepSeek-R1", label: "DeepSeek-R1", desc: "R1 推理" },
+    { id: "DeepSeek-V3.2", label: "DeepSeek-V3.2", desc: "V3.2" },
+  ];
+
+  function catalogProviders() {
+    return Array.isArray(state.providerCatalog) && state.providerCatalog.length
+      ? state.providerCatalog
+      : [{ id: "deepseek", name: "DeepSeek", models: MODEL_OPTIONS.map((m) => m.id), ready: true }];
+  }
+
+  async function loadProviderCatalog() {
+    try {
+      const msg = await postAsync("agentProviderCatalog", {});
+      if (msg.ok && Array.isArray(msg.providers)) state.providerCatalog = msg.providers;
+    } catch (_) {
+      state.providerCatalog = [];
+    }
+  }
+
   const SLASH_MODELS = [
-    { kind: "model", id: "deepseek-v4-pro", label: "deepseek-v4-pro", desc: "DeepSeek V4 Pro（默认 · 思考+联网）" },
-    { kind: "model", id: "deepseek-reasoner", label: "deepseek-reasoner", desc: "深度推理（兼容）" },
+    { kind: "model", id: "auto", label: "Auto", desc: "按任务复杂度自动选模型（同 Cursor）", action: { type: "modelAuto", value: true } },
+    ...MODEL_OPTIONS.map((m) => ({ kind: "model", id: m.id, label: m.label, desc: m.desc, action: { type: "model", value: m.id } })),
   ];
 
   const slashPalette = {
@@ -1685,6 +1744,54 @@
       return;
     }
 
+    if (item.action?.type === "modelAuto") {
+      state.modelAuto = true;
+      renderContextBar();
+      patchWorkspace({ agentModelAuto: true }).catch(() => {});
+      replaceSlashToken(input, "");
+      closeSlashPalette();
+      resizeInput();
+      updateComposerState();
+      input.focus();
+      return;
+    }
+
+    if (item.action?.type === "model") {
+      state.modelAuto = false;
+      state.model = item.action.value;
+      state.providerId = item.action.providerId || state.providerId || "deepseek";
+      renderContextBar();
+      patchWorkspace({
+        agentModelAuto: false,
+        agentManualModel: item.action.value,
+        agentManualProviderId: state.providerId,
+      }).catch(() => {});
+      replaceSlashToken(input, "");
+      closeSlashPalette();
+      resizeInput();
+      updateComposerState();
+      input.focus();
+      return;
+    }
+
+    if (item.kind === "model" && item.id && item.id !== "auto") {
+      state.modelAuto = false;
+      state.model = item.id;
+      state.providerId = item.providerId || state.providerId || "deepseek";
+      renderContextBar();
+      patchWorkspace({
+        agentModelAuto: false,
+        agentManualModel: item.id,
+        agentManualProviderId: state.providerId,
+      }).catch(() => {});
+      replaceSlashToken(input, "");
+      closeSlashPalette();
+      resizeInput();
+      updateComposerState();
+      input.focus();
+      return;
+    }
+
     if (item.action?.type === "skill") {
       state.skillId = item.action.value;
     }
@@ -1934,6 +2041,9 @@
       strategy: state.strategy,
       deepThink: !!state.deepThink,
       smartSearch: !!state.smartSearch,
+      modelAuto: !!state.modelAuto,
+      model: state.model,
+      providerId: state.providerId,
       mcpOn: true,
       refFileIds,
       sessionId: state.activeSessionId,
@@ -2023,7 +2133,7 @@
       return;
     }
 
-    if (state.embeddedPanel && forwardEmbeddedHostMessage(msg)) return;
+    if (forwardEmbeddedHostMessage(msg)) return;
 
     if (msg.type === "embeddedPanelReady" && state.embeddedPanel) {
       const loading = $("embedded-panel-loading");
@@ -2044,8 +2154,33 @@
         }
         if (typeof msg.agentDeepThinking === "boolean") state.deepThink = msg.agentDeepThinking;
         if (typeof msg.agentWebSearch === "boolean") state.smartSearch = msg.agentWebSearch;
+        if (typeof msg.agentModelAuto === "boolean") state.modelAuto = msg.agentModelAuto;
+        if (typeof msg.agentManualModel === "string" && msg.agentManualModel)
+          state.model = msg.agentManualModel;
+        if (typeof msg.agentManualProviderId === "string" && msg.agentManualProviderId)
+          state.providerId = msg.agentManualProviderId;
         syncFeaturePills();
+        renderContextBar();
       }
+    }
+
+    if (msg.type === "agentProviderCatalog" && msg.ok && Array.isArray(msg.providers)) {
+      state.providerCatalog = msg.providers;
+      if (handlePendingReply(msg)) return;
+    }
+
+    if (msg.type === "agentModelResolved") {
+      state.lastResolvedModel = msg.model || null;
+      state.lastResolvedProvider = msg.providerId || msg.providerName || null;
+      if (state.currentRun?.phaseEl && msg.auto) {
+        state.currentRun.phaseEl.textContent =
+          "Auto · " +
+          (msg.providerName || msg.providerId || "") +
+          " / " +
+          (msg.model || "") +
+          (msg.reason ? " · " + msg.reason : "");
+      }
+      renderContextBar();
     }
 
     if (msg.type === "agentWorkspaceState" && msg.workspace) {
@@ -2131,9 +2266,51 @@
     });
   }
 
+  function getDsdApiEmbedWindow() {
+    const iframe = $("embedded-frame");
+    if (!iframe?.contentWindow) return null;
+    if ((iframe.src || "").indexOf("/dsd-api/") < 0) return null;
+    return iframe.contentWindow;
+  }
+
+  function notifyDsdApiPanelVisible() {
+    const win = getDsdApiEmbedWindow();
+    if (!win) return;
+    try {
+      win.postMessage(
+        JSON.stringify({ type: "embeddedPanelOpen", __dsEmbed: true }),
+        "*"
+      );
+    } catch (_) {}
+  }
+
+  function forwardDsdApiIpcToIframe(msg) {
+    const win = getDsdApiEmbedWindow();
+    if (
+      !win ||
+      (msg.type !== "ipcResult" &&
+        msg.type !== "ipcEvent" &&
+        msg.type !== "desktopStackSynced")
+    ) {
+      return false;
+    }
+    try {
+      win.postMessage(JSON.stringify(msg), "*");
+    } catch (_) {}
+    return true;
+  }
+
   function forwardEmbeddedHostMessage(msg) {
     const iframe = $("embedded-frame");
-    if (!iframe?.contentWindow || !state.embeddedPanel) return false;
+    if (!iframe?.contentWindow) return false;
+
+    // 后台预热 DSD API 时也必须把 IPC 回传给 iframe，否则供应商页会一直 loading
+    if (forwardDsdApiIpcToIframe(msg)) {
+      if (state.embeddedPanel === "apiManagement") return true;
+      return msg.type === "ipcResult" || msg.type === "ipcEvent" || msg.type === "desktopStackSynced";
+    }
+
+    if (!state.embeddedPanel) return false;
 
     if (state.embeddedPanel === "settings") {
       if (msg.reqId && String(msg.reqId).startsWith("s")) {
@@ -2145,19 +2322,7 @@
       return false;
     }
 
-    if (state.embeddedPanel === "chat2api") {
-      if (
-        msg.type === "ipcResult" ||
-        msg.type === "ipcEvent" ||
-        msg.type === "desktopStackSynced"
-      ) {
-        try {
-          iframe.contentWindow.postMessage(JSON.stringify(msg), "*");
-        } catch (_) {}
-        return true;
-      }
-      return false;
-    }
+    if (state.embeddedPanel === "apiManagement") return false;
 
     return false;
   }
@@ -2175,8 +2340,8 @@
       state.embeddedPanel = null;
       root.hidden = true;
       document.body.classList.remove("ds-embedded-open");
-      // 保留 Chat2API iframe 文档，返回 Agent 时无需整页重载
-      if (wasPanel !== "chat2api") iframe.src = "about:blank";
+      // 保留 DSD API iframe 文档，返回 Agent 时无需整页重载
+      if (wasPanel !== "apiManagement") iframe.src = "about:blank";
       if (loading) loading.hidden = false;
     }
 
@@ -2190,7 +2355,7 @@
         "</span>";
     }
 
-    function isChat2ApiIframeReady() {
+    function isDsdApiIframeReady() {
       try {
         const doc = iframe.contentDocument;
         const rootEl = doc?.getElementById("root");
@@ -2202,11 +2367,11 @@
 
     function showEmbeddedPanel(panel) {
       if (!EMBED_URLS[panel]) return;
-      const url = EMBED_URLS[panel];
-      const reuseChat2Api =
-        panel === "chat2api" &&
-        (iframe.src || "").indexOf("/chat2api/") >= 0 &&
-        isChat2ApiIframeReady();
+      const url = resolveEmbedUrl(panel);
+      const reuseDsdApiPanel =
+        panel === "apiManagement" &&
+        isDsdApiIframeCurrent() &&
+        isDsdApiIframeReady();
 
       state.embeddedPanel = panel;
       if (titleEl) titleEl.textContent = EMBED_TITLES[panel] || panel;
@@ -2214,8 +2379,9 @@
       document.body.classList.add("ds-embedded-open");
       iframe.removeAttribute("srcdoc");
 
-      if (reuseChat2Api) {
+      if (reuseDsdApiPanel) {
         if (loading) loading.hidden = true;
+        notifyDsdApiPanelVisible();
         return;
       }
 
@@ -2229,13 +2395,13 @@
 
     backBtn?.addEventListener("click", hideEmbeddedPanel);
     iframe?.addEventListener("error", () => {
-      if (state.embeddedPanel === "chat2api") {
+      if (state.embeddedPanel === "apiManagement") {
         showEmbedLoadError("API 管理页加载失败，请重新运行 build.ps1 部署");
       }
     });
     iframe?.addEventListener("load", () => {
       if (!state.embeddedPanel) return;
-      if (state.embeddedPanel === "chat2api") {
+      if (state.embeddedPanel === "apiManagement") {
         try {
           const doc = iframe.contentDocument;
           const root = doc?.getElementById("root");
@@ -2250,6 +2416,7 @@
         }
       }
       if (loading) loading.hidden = true;
+      if (state.embeddedPanel === "apiManagement") notifyDsdApiPanelVisible();
       if (state.embeddedPanel === "settings" && iframe.contentWindow && state.authResolved) {
         try {
           iframe.contentWindow.postMessage(
@@ -2327,7 +2494,7 @@
   }
 
   function bindSettingsMenu() {
-    const btn = $("btn-sidebar-settings");
+    const btn = $("btn-top-settings") || $("btn-sidebar-settings");
     const backdrop = $("settings-backdrop");
     const popover = $("settings-popover");
     if (!btn || !backdrop || !popover) return;
@@ -2416,8 +2583,8 @@
     setTimeout(() => {
       const frame = $("embedded-frame");
       if (!frame || state.embeddedPanel) return;
-      if ((frame.src || "").indexOf("/chat2api/") >= 0) return;
-      frame.src = EMBED_URLS.chat2api;
+      if ((frame.src || "").indexOf("/dsd-api/") >= 0 && isDsdApiIframeCurrent()) return;
+      frame.src = resolveEmbedUrl("apiManagement");
     }, 1200);
     $("btn-send")?.addEventListener("click", () => {
       if (state.running) cancelRun();
@@ -2426,9 +2593,9 @@
     $("btn-new-chat")?.addEventListener("click", () => startNewChat());
     const closeSettingsMenu = bindSettingsMenu();
     closeSettingsMenuRef = closeSettingsMenu;
-    $("btn-chat2api")?.addEventListener("click", () => {
+    $("btn-api-management")?.addEventListener("click", () => {
       closeSettingsMenu?.();
-      openEmbeddedPanel("chat2api");
+      openEmbeddedPanel("apiManagement");
     });
     $("btn-automations")?.addEventListener("click", () => {
       closeSettingsMenu?.();
@@ -2449,8 +2616,8 @@
       e.preventDefault();
     });
     $("btn-login-goto")?.addEventListener("click", () => {
-      if (window.DsWorkMode) window.DsWorkMode.requestSet("chat", chatNavigateExtra());
-      else post("setWorkMode", { mode: "chat", ...chatNavigateExtra() });
+      closeSettingsMenuRef?.();
+      openEmbeddedPanel("apiManagement");
     });
 
     const fileInput = $("file-input");
@@ -2558,8 +2725,25 @@
     workspaceUi.homePath = ws.homePath || "";
     workspaceUi.recents = Array.isArray(ws.recents) ? ws.recents : [];
     state.strategy = displayStrategy(ws.defaultAgentStrategy);
+    if (typeof ws.agentModelAuto === "boolean") state.modelAuto = ws.agentModelAuto;
+    if (typeof ws.agentManualModel === "string" && ws.agentManualModel) state.model = ws.agentManualModel;
+    if (typeof ws.agentManualProviderId === "string" && ws.agentManualProviderId)
+      state.providerId = ws.agentManualProviderId;
     renderWorkspaceSidebar();
     renderContextBar();
+  }
+
+  function providerDisplayName(id) {
+    const p = catalogProviders().find((x) => x.id === id);
+    return p ? p.name : id;
+  }
+
+  function modelLabel() {
+    if (state.modelAuto) return "Auto";
+    const pname = providerDisplayName(state.providerId);
+    const opt = MODEL_OPTIONS.find((m) => m.id === state.model);
+    const mname = opt ? opt.label : state.model;
+    return pname + " · " + mname;
   }
 
   async function loadWorkspaceFromHost() {
@@ -2664,6 +2848,8 @@
   function renderContextBar() {
     const wLabel = $("ctx-workspace-label");
     const mLabel = $("ctx-mode-label");
+    const modelLabelEl = $("ctx-model-label");
+    const modelChip = $("ctx-model");
     if (wLabel) {
       wLabel.textContent =
         truncatePath(workspaceUi.currentPath, 42) ||
@@ -2671,6 +2857,19 @@
         "工作区";
     }
     if (mLabel) mLabel.textContent = strategyLabel(state.strategy);
+    if (modelLabelEl) modelLabelEl.textContent = modelLabel();
+    if (modelChip) {
+      modelChip.classList.toggle("ds-model-auto-on", !!state.modelAuto);
+      modelChip.title = state.modelAuto
+        ? "Auto：按偏好供应商 + 任务复杂度选模型" +
+          (state.lastResolvedProvider || state.lastResolvedModel
+            ? "（上次 → " +
+              (state.lastResolvedProvider || "") +
+              (state.lastResolvedModel ? " / " + state.lastResolvedModel : "") +
+              "）"
+            : "")
+        : providerDisplayName(state.providerId) + " · " + state.model;
+    }
     const wChip = $("ctx-workspace");
     if (wChip) wChip.title = workspaceUi.currentPath || "";
   }
@@ -2682,7 +2881,7 @@
     const backdrop = $("ctx-backdrop");
     if (menu) menu.hidden = true;
     if (backdrop) backdrop.hidden = true;
-    ["ctx-workspace", "ctx-mode"].forEach((id) => {
+    ["ctx-workspace", "ctx-mode", "ctx-model"].forEach((id) => {
       const el = $(id);
       if (el) el.setAttribute("aria-expanded", "false");
     });
@@ -2704,6 +2903,7 @@
 
     if (kind === "workspace") buildWorkspaceMenu(menu);
     else if (kind === "mode") buildModeMenu(menu);
+    else if (kind === "model") buildModelMenu(menu);
   }
 
   function menuSection(menu, heading) {
@@ -2826,6 +3026,52 @@
     });
   }
 
+  function buildModelMenu(menu) {
+    const autoSec = menuSection(menu, "模型");
+    const autoBtn = document.createElement("button");
+    autoBtn.type = "button";
+    autoBtn.className =
+      "ds-ctx-menu-item ds-ctx-auto-row" + (state.modelAuto ? " is-active" : "");
+    autoBtn.setAttribute("role", "menuitem");
+    autoBtn.innerHTML =
+      '<span class="ds-ctx-menu-item-body">' +
+      '<span class="ds-ctx-menu-item-title">Auto</span>' +
+      '<span class="ds-ctx-menu-item-desc">按偏好供应商顺序 + 任务复杂度自动选模型</span>' +
+      "</span>" +
+      '<svg class="ds-ctx-menu-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12l4 4L19 7"/></svg>';
+    autoBtn.addEventListener("click", () => {
+      closeCtxMenu();
+      state.modelAuto = true;
+      renderContextBar();
+      patchWorkspace({ agentModelAuto: true }).catch(() => {});
+    });
+    autoSec.appendChild(autoBtn);
+
+    catalogProviders().forEach((provider) => {
+      const sec = menuSection(menu, provider.name + (provider.ready ? "" : " · 未就绪"));
+      const models = provider.models && provider.models.length ? provider.models : MODEL_OPTIONS.map((m) => m.id);
+      models.forEach((modelId) => {
+        const meta = MODEL_OPTIONS.find((m) => m.id === modelId);
+        menuItem(sec, {
+          title: modelId,
+          desc: meta ? meta.desc : provider.name,
+          active: !state.modelAuto && state.providerId === provider.id && state.model === modelId,
+          onClick: () => {
+            state.modelAuto = false;
+            state.providerId = provider.id;
+            state.model = modelId;
+            renderContextBar();
+            patchWorkspace({
+              agentModelAuto: false,
+              agentManualModel: modelId,
+              agentManualProviderId: provider.id,
+            }).catch(() => {});
+          },
+        });
+      });
+    });
+  }
+
   function initWorkspaceUi() {
     $("btn-workspace-add")?.addEventListener("click", () => pickWorkspaceFolder().catch(() => {}));
     $("btn-workspace-filter")?.addEventListener("click", () => {
@@ -2860,6 +3106,14 @@
         openCtxMenu("mode", $("ctx-mode"));
       }
     });
+    $("ctx-model")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (workspaceUi.openMenu === "model") closeCtxMenu();
+      else {
+        closeCtxMenu();
+        openCtxMenu("model", $("ctx-model"));
+      }
+    });
     $("ctx-backdrop")?.addEventListener("click", closeCtxMenu);
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") closeCtxMenu();
@@ -2882,6 +3136,7 @@
 
     await bootstrapStorage();
     loadWorkspaceFromHost().catch(() => {});
+    loadProviderCatalog().then(() => renderContextBar()).catch(() => {});
     post("nativeReady", {});
     flushPendingNativeMessages();
 

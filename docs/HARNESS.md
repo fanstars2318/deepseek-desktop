@@ -10,7 +10,7 @@
 |----|------|------|
 | **Model** | `WebChatBridgeHost` + `bridge.js` | 网页 DeepSeek 会话、流式、`<tool_calling>` |
 | **L1 Capability** | `HarnessToolRegistry` · `BuiltinToolExecutor` · `McpHub` | 工具 + 工作区沙箱 |
-| **L2 Channel** | `IAgentWebChat` · Chat2API | 模型通道 |
+| **L2 Channel** | `IAgentWebChat` · DSD API | 模型通道 |
 | **L3 Composer** | `HarnessComposer` · `HarnessMemoryLoader` · `HarnessPlaybookRegistry` | Phase 提示 + 记忆 + Playbook |
 | **L4 Control** | `HarnessOrchestrator` · `HarnessSelfValidator` · `HarnessCheckpointStore` · `HarnessSandboxCoordinator` | 循环、自检、检查点、沙箱生命周期 |
 
@@ -87,7 +87,7 @@ flowchart LR
 
 | 设置 | 字段 | 说明 |
 |------|------|------|
-| 推理通道 | `AgentInferenceMode` | `web`（默认，网页 + Chat2API）或 `api`（直连 OpenAI 兼容 API） |
+| 推理通道 | `AgentInferenceMode` | `web`（默认，网页 + DSD API）或 `api`（直连 OpenAI 兼容 API） |
 | 工具协议 | `AgentToolCallingProtocol` | `xml` 或 `openai`；API 模式自动启用 OpenAI tools |
 | API | `AgentApiBaseUrl` / `AgentApiKey` | 直连模式凭据 |
 | 推理强度 | `AgentReasoningEffort` | `high` / `max`（写入 API extra_body） |
@@ -95,7 +95,7 @@ flowchart LR
 
 实现：`OpenAiAgentChatClient` · `HarnessOpenAiToolLoop` · `HarnessOpenAiBuiltinTools`（read/write/edit/bash + AskUserQuestion + UpdatePlan）。
 
-网页模式若 Chat2API 不支持 `tools`，可继续用 XML fallback；API 模式完整走 function calling。
+网页模式若 DSD API 不支持 `tools`，可继续用 XML fallback；API 模式完整走 function calling。
 
 ### 决断摘要（默认）
 

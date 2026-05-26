@@ -1,0 +1,355 @@
+/* DeepSeek Desktop — API 管理台全量主题（覆盖 Chat2API 原墨绿/米色风格） */
+
+:root,
+html,
+html[data-theme="light"],
+html[data-theme="dark"] {
+  --ds-blue: #4d6bfe;
+  --ds-blue-hover: #5c7aff;
+  --ds-blue-soft: #eef2ff;
+  --ds-bg: #ffffff;
+  --ds-page: #f9fafb;
+  --ds-sidebar: #f9fafb;
+  --ds-border: #e5e7eb;
+  --ds-text: #374151;
+  --ds-title: #111827;
+  --ds-muted: #6b7280;
+
+  --glass-bg: rgba(255, 255, 255, 0.94);
+  --glass-bg-hover: #ffffff;
+  --glass-border: #e5e7eb;
+  --glass-border-hover: #d1d5db;
+
+  --bg-primary: var(--ds-page) !important;
+  --bg-secondary: var(--ds-bg) !important;
+  --bg-tertiary: #f3f4f6 !important;
+  --bg-deep: #eef2ff !important;
+
+  --accent-primary: var(--ds-blue) !important;
+  --accent-primary-rgb: 77, 107, 254 !important;
+  --accent-secondary: #6366f1 !important;
+  --accent-tertiary: #818cf8 !important;
+  --accent-teal: var(--ds-blue) !important;
+
+  --text-primary: var(--ds-title) !important;
+  --text-muted: var(--ds-muted) !important;
+  --text-dim: #9ca3af !important;
+
+  --success: #16a34a !important;
+  --error: #dc2626 !important;
+  --warning: #d97706 !important;
+
+  --glow-primary: 0 8px 24px rgba(77, 107, 254, 0.16) !important;
+  --glow-secondary: 0 8px 24px rgba(99, 102, 241, 0.1) !important;
+
+  --neumorphic-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+  --neumorphic-highlight: none !important;
+  --neumorphic-inset-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+  --neumorphic-inset-highlight: none !important;
+
+  --overlay-bg: rgba(17, 24, 39, 0.4) !important;
+
+  --background: 210 20% 98% !important;
+  --foreground: 222 47% 11% !important;
+  --card: 0 0% 100% !important;
+  --card-foreground: 222 47% 11% !important;
+  --popover: 0 0% 100% !important;
+  --popover-foreground: 222 47% 11% !important;
+  --primary: 231 97% 65% !important;
+  --primary-foreground: 0 0% 100% !important;
+  --secondary: 220 14% 96% !important;
+  --secondary-foreground: 222 47% 11% !important;
+  --muted: 220 14% 96% !important;
+  --muted-foreground: 215 16% 47% !important;
+  --accent: 231 97% 97% !important;
+  --accent-foreground: 231 97% 45% !important;
+  --destructive: 0 72% 51% !important;
+  --destructive-foreground: 0 0% 100% !important;
+  --border: 220 13% 91% !important;
+  --input: 220 13% 91% !important;
+  --ring: 231 97% 65% !important;
+  --radius: 0.75rem !important;
+}
+
+#root {
+  min-height: 100vh !important;
+  width: 100% !important;
+  display: block !important;
+}
+
+html,
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif !important;
+  background: var(--ds-page) !important;
+  color: var(--ds-title) !important;
+}
+
+/* 去掉原 bokeh 绿/粉光斑 */
+.bokeh-bg {
+  display: none !important;
+}
+
+/* 顶栏 / 侧栏 — 对齐 Agent 页 */
+.glass-topbar,
+[data-theme="light"] .glass-topbar,
+[data-theme="dark"] .glass-topbar {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-bottom: 1px solid var(--ds-border) !important;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04) !important;
+}
+
+.glass-sidebar,
+[data-theme="light"] .glass-sidebar,
+[data-theme="dark"] .glass-sidebar {
+  background: var(--ds-sidebar) !important;
+  border: 1px solid var(--ds-border) !important;
+  border-radius: 16px !important;
+  margin: 10px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+
+.glass-card,
+.glass-card-hover {
+  background: var(--ds-bg) !important;
+  border: 1px solid var(--ds-border) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+
+[data-theme="light"] .glass-card-hover:hover,
+.glass-card-hover:hover {
+  border-color: #d1d5db !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* 导航选中态 — DeepSeek 蓝 */
+.nav-item-active,
+.sidebar-item.active,
+[data-theme="light"] .nav-item-active {
+  background: var(--ds-blue-soft) !important;
+  color: var(--ds-blue) !important;
+  border: 1px solid rgba(77, 107, 254, 0.2) !important;
+  box-shadow: none !important;
+}
+
+.nav-item-inactive:hover,
+[data-theme="light"] .nav-item-inactive:hover {
+  background: #f3f4f6 !important;
+  color: var(--ds-title) !important;
+}
+
+/* 主按钮 / 强调色（排除 /10、/90 等透明度变体，避免盖住统计卡图标底） */
+button.bg-primary,
+button[class*="bg-primary"],
+.btn-primary,
+.proxy-toggle-btn-active,
+[class*="bg-[var(--accent-primary)]"]:not([class*="/"]) {
+  background-color: var(--ds-blue) !important;
+  color: #fff !important;
+  border-color: var(--ds-blue) !important;
+}
+
+button.bg-primary:hover,
+.proxy-toggle-btn-active:hover {
+  background-color: var(--ds-blue-hover) !important;
+}
+
+/* 统计卡 / 设置项 / 侧栏等 Lucide 图标底 — 原 Chat2API 浅蓝底 + 蓝色线框图标 */
+[class*="bg-[var(--accent-primary)]/10"],
+[class*="bg-[var(--accent-primary)]/8"],
+[class*="bg-[var(--accent-primary)]/15"] {
+  background: color-mix(in srgb, var(--ds-blue) 12%, transparent) !important;
+  color: inherit !important;
+  border-color: transparent !important;
+}
+
+[class*="text-[var(--accent-primary)]"] {
+  color: var(--ds-blue) !important;
+}
+
+[class*="bg-[var(--accent-primary)]/10"] svg.lucide,
+[class*="bg-[var(--accent-primary)]/8"] svg.lucide,
+[class*="bg-[var(--accent-primary)]/15"] svg.lucide,
+[class*="text-[var(--accent-primary)]"] svg.lucide {
+  stroke: var(--ds-blue) !important;
+  color: var(--ds-blue) !important;
+}
+
+/* 实心主色块内的图标应为白色 */
+[class*="bg-[var(--accent-primary)]"]:not([class*="/"]) svg.lucide {
+  stroke: #fff !important;
+  color: #fff !important;
+}
+
+.proxy-toggle-active {
+  background: var(--ds-blue-soft) !important;
+  border-color: rgba(77, 107, 254, 0.25) !important;
+}
+
+/* 描边按钮 */
+button[class*="border"][class*="variant-outline"],
+button.border {
+  border-color: var(--ds-border) !important;
+  border-radius: 10px !important;
+}
+
+button[class*="border"]:hover {
+  background: #f9fafb !important;
+  border-color: #d1d5db !important;
+}
+
+/* 输入框 */
+input,
+textarea,
+select,
+[role="combobox"] {
+  border-color: var(--ds-border) !important;
+  border-radius: 10px !important;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--ds-blue) !important;
+  box-shadow: 0 0 0 2px rgba(77, 107, 254, 0.15) !important;
+}
+
+/* 图表图例色（勿影响 Lucide 图标） */
+.recharts-wrapper .recharts-line .recharts-curve,
+.recharts-wrapper .recharts-area {
+  stroke: var(--ds-blue) !important;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* 顶栏品牌 */
+.ds-console-brand-title {
+  font-size: 18px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.03em !important;
+  text-transform: lowercase !important;
+  color: var(--ds-title) !important;
+}
+
+.ds-console-whale-wrap {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.ds-console-whale {
+  display: inline-block !important;
+  width: 27px !important;
+  height: 20px !important;
+  flex-shrink: 0 !important;
+  background: url("./deepseek-brand.svg") no-repeat center / contain !important;
+}
+
+/* 内嵌模式：隐藏代理 / API Keys（仪表盘、日志由 ds-ui-trim.js 保留） */
+html.ds-console a[href="/proxy"],
+html.ds-console a[href="#/proxy"],
+html.ds-console a[href="/api-keys"],
+html.ds-console a[href="#/api-keys"] {
+  display: none !important;
+}
+
+html.ds-console .proxy-toggle-active,
+html.ds-console .proxy-toggle-btn-active,
+html.ds-console [class*="proxy-toggle"] {
+  display: none !important;
+}
+
+html.ds-console [data-ds-hidden="1"] {
+  display: none !important;
+}
+
+.ds-desktop-stack-bar,
+#ds-desktop-stack-bar,
+#ds-embedded-banner {
+  display: none !important;
+}
+
+main img[alt*="Logo"],
+main img[alt*="Chat2API"] {
+  display: none !important;
+}
+
+.ds-desktop-stack-bar {
+  margin: 0 12px 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--ds-border, #e5e7eb);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.ds-stack-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-title, #111827);
+  margin-bottom: 8px;
+}
+
+.ds-stack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px 12px;
+  margin-bottom: 8px;
+}
+
+.ds-stack-row {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ds-stack-label {
+  flex: 0 0 72px;
+  color: var(--ds-muted, #6b7280);
+}
+
+.ds-stack-value {
+  flex: 1;
+  color: var(--ds-title, #111827);
+  word-break: break-all;
+}
+
+.ds-stack-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #b45309;
+}
+
+.ds-stack-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ds-stack-btn {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--ds-border, #e5e7eb);
+  background: #fff;
+  color: var(--ds-title, #111827);
+  cursor: pointer;
+}
+
+.ds-stack-btn:hover {
+  background: #f3f4f6;
+}

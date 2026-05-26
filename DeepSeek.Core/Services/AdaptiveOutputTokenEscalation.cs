@@ -2,7 +2,7 @@ using DeepSeekBrowser.Models;
 
 namespace DeepSeekBrowser.Services;
 
-/// <summary>网页对话输出截断检测与多轮续写（Chat2API / 桥接路径）。</summary>
+/// <summary>网页对话输出截断检测与多轮续写（DSD API / 桥接路径）。</summary>
 public static class AdaptiveOutputTokenEscalation
 {
     public const int CappedDefaultMaxTokens = 8_000;

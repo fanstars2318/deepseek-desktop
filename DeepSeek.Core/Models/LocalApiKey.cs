@@ -1,6 +1,6 @@
 namespace DeepSeekBrowser.Models;
 
-/// <summary>本地 Chat2API 代理 Key（对齐 Chat2API-main 的 ApiKey 结构）。</summary>
+/// <summary>本地 DSD API 代理 Key（对齐 DSD API-main 的 ApiKey 结构）。</summary>
 public sealed class LocalApiKey
 {
     public string Id { get; set; } = "";

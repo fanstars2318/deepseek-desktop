@@ -508,6 +508,179 @@ html, body {
   border-radius: 999px;
 }
 
+.se-order-drag-hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+.se-provider-order-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-sm);
+  background: #fff;
+  min-height: 44px;
+}
+
+.se-provider-order-list:empty::before {
+  content: "从下方点击添加供应商，或保存后使用默认顺序";
+  display: block;
+  padding: 14px 12px;
+  font-size: 12px;
+  color: var(--ds-muted);
+}
+
+.se-provider-order-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ds-border-light);
+  background: #fff;
+  transition: background 0.12s, box-shadow 0.12s;
+}
+
+.se-provider-order-item:last-child {
+  border-bottom: none;
+}
+
+.se-provider-order-item.is-dragging {
+  opacity: 0.45;
+}
+
+.se-provider-order-item.is-drag-over {
+  background: var(--ds-blue-soft);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.35);
+}
+
+.se-provider-order-handle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 28px;
+  color: var(--ds-caption);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.se-provider-order-handle:active {
+  cursor: grabbing;
+}
+
+.se-provider-order-rank {
+  flex-shrink: 0;
+  width: 1.25rem;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ds-caption);
+  text-align: center;
+}
+
+.se-provider-order-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.se-provider-order-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-title);
+}
+
+.se-provider-order-meta {
+  font-size: 11px;
+  color: var(--ds-muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.se-provider-order-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.se-provider-order-btn {
+  border: 1px solid var(--ds-border);
+  background: #fff;
+  color: var(--ds-muted);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.se-provider-order-btn:hover:not(:disabled) {
+  background: var(--ds-border-light);
+  color: var(--ds-text);
+}
+
+.se-provider-order-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.se-provider-order-pool {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.se-provider-order-pool:empty::before {
+  content: "偏好列表已包含全部供应商";
+  font-size: 12px;
+  color: var(--ds-muted);
+}
+
+.se-provider-pool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px dashed var(--ds-border);
+  border-radius: 999px;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ds-text);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.se-provider-pool-chip:hover {
+  border-color: var(--ds-blue);
+  background: var(--ds-blue-soft);
+  color: var(--ds-blue);
+}
+
+.se-provider-pool-chip .se-pool-id {
+  font-size: 10px;
+  color: var(--ds-caption);
+}
+
+.se-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.se-status-dot.is-ready {
+  background: #22c55e;
+}
+
 @media (max-width: 560px) {
   .se-stat-grid,
   .se-grid,

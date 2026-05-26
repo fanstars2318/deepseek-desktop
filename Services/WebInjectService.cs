@@ -39,17 +39,17 @@ public sealed class WebInjectService : IWebInjectBridge, IDdPageMessenger
     public Task EnsureApiBridgeReadyAsync(CancellationToken ct = default) =>
         _apiBridge?.EnsureReadyAsync(ct) ?? Task.CompletedTask;
 
-    public Task<Chat2ApiHealth?> ProbeChat2ApiHealthAsync(string? configWebUserToken, string baseUrl,
+    public Task<DsdApiHealth?> ProbeDsdApiHealthAsync(string? configWebUserToken, string baseUrl,
         CancellationToken ct = default) =>
         _apiBridge is null
-            ? Task.FromResult<Chat2ApiHealth?>(new Chat2ApiHealth
+            ? Task.FromResult<DsdApiHealth?>(new DsdApiHealth
             {
                 ApiListening = true,
                 ConfigLoggedIn = !string.IsNullOrWhiteSpace(configWebUserToken),
                 BaseUrl = baseUrl,
                 Error = "桥接 WebView 未附加"
             })
-            : RunOnUiAsync<Chat2ApiHealth?>(async () =>
+            : RunOnUiAsync<DsdApiHealth?>(async () =>
             {
                 var h = await _apiBridge.ProbeAsync(configWebUserToken, ct);
                 return h with { BaseUrl = baseUrl };
@@ -85,12 +85,12 @@ public sealed class WebInjectService : IWebInjectBridge, IDdPageMessenger
                 CoreWebView2HostResourceAccessKind.Allow);
         }
 
-        var chat2apiDir = Path.Combine(AppContext.BaseDirectory, "Assets", "chat2api");
-        if (Directory.Exists(chat2apiDir))
+        var dsdApiDir = Path.Combine(AppContext.BaseDirectory, "Assets", "dsd-api");
+        if (Directory.Exists(dsdApiDir))
         {
             core.SetVirtualHostNameToFolderMapping(
-                "ds-chat2api.local",
-                chat2apiDir,
+                "dsdp-api.local",
+                dsdApiDir,
                 CoreWebView2HostResourceAccessKind.Allow);
         }
 
@@ -264,12 +264,12 @@ public sealed class WebInjectService : IWebInjectBridge, IDdPageMessenger
         return parts.Count <= 1 ? "" : string.Concat(parts);
     }
 
-    /// <summary>Chat2API 内嵌 iframe 不注入官网桥脚本，避免破坏 React 首屏。</summary>
+    /// <summary>DSD API 内嵌 iframe 不注入官网桥脚本，避免破坏 React 首屏。</summary>
     private static string GuardDocumentCreatedScript(string script, string name) =>
         "(function(){try{"
         + "var h=(location.hostname||'').toLowerCase(),p=location.pathname||'';"
-        + "if(h==='ds-chat2api.local')return;"
-        + "if(h==='ds-agent.local'&&p.indexOf('/chat2api/')!==-1)return;"
+        + "if(h==='dsdp-api.local')return;"
+        + "if(h==='ds-agent.local'&&p.indexOf('/dsd-api/')!==-1)return;"
         + script
         + "}catch(e){console.warn('[DeepSeek Desktop] inject " + name + "',e);}})();";
 
@@ -300,7 +300,7 @@ public sealed class WebInjectService : IWebInjectBridge, IDdPageMessenger
             return await _webView.CoreWebView2.ExecuteScriptAsync(javaScriptExpression);
         });
 
-    /// <summary>向 WebView 所有 frame 广播 postMessage（内嵌 iframe 的 Chat2API / 设置页使用）。</summary>
+    /// <summary>向 WebView 所有 frame 广播 postMessage（内嵌 iframe 的 DSD API / 设置页使用）。</summary>
     public Task PostWebMessageAsync(object message) =>
         RunOnUiAsync(() => PostWebMessageOnUiAsync(message));
 
@@ -545,7 +545,7 @@ public sealed class WebInjectService : IWebInjectBridge, IDdPageMessenger
         bool allowToolCalls = false)
     {
         if (_apiBridge is null)
-            throw new InvalidOperationException("流式 Chat 需要 Chat2API 桥接 WebView，请重启应用。");
+            throw new InvalidOperationException("流式 Chat 需要 DSD API 桥接 WebView，请重启应用。");
 
         return _apiBridge.WebChatStreamAsync(
             messages, model, thinking, search, AgentRefFileIds, ct, webUserToken, webChatSessionId, allowToolCalls);
@@ -613,7 +613,7 @@ public sealed class WebInjectService : IWebInjectBridge, IDdPageMessenger
             modelType = "expert",
             refFileIds = AgentRefFileIds,
             chatSessionId = webChatSessionId,
-            suppressToolCalls = Chat2ApiFeatureScope.HasActiveAgentRun
+            suppressToolCalls = DsdAgentApiScope.HasActiveAgentRun
         });
         await InjectWebUserTokenOnUiAsync(webUserToken);
 

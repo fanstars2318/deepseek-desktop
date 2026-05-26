@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using DeepSeekBrowser.Models;
 
 namespace DeepSeekBrowser.Services.Harness;
 
@@ -12,6 +13,7 @@ public static class HarnessIntentCache
     {
         state.CachedIntentJson = JsonSerializer.Serialize(intent, JsonOptions);
         state.CachedIntentPromptHash = HashPrompt(prompt);
+        state.CachedIntentSavedAtUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     }
 
     public static HarnessRunIntent? TryRestore(HarnessRunRequest request, HarnessRunState? state)
@@ -24,6 +26,8 @@ public static class HarnessIntentCache
             return null;
         if (!PromptSimilar(state.CachedIntentPromptHash, request.Prompt))
             return null;
+        if (!IsWithinTtl(request.Config, state))
+            return null;
 
         try
         {
@@ -33,6 +37,15 @@ public static class HarnessIntentCache
         {
             return null;
         }
+    }
+
+    private static bool IsWithinTtl(AppConfig config, HarnessRunState state)
+    {
+        var ttlMinutes = Math.Clamp(config.AgentIntentCacheTtlMinutes, 1, 24 * 60);
+        if (state.CachedIntentSavedAtUnix <= 0)
+            return true;
+        var age = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - state.CachedIntentSavedAtUnix;
+        return age <= ttlMinutes * 60L;
     }
 
     public static bool PromptSimilar(string cachedHash, string? newPrompt)

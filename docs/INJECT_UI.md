@@ -5,7 +5,7 @@
 | `bridge.js` | WebView ↔ 宿主消息、token、原生能力 |
 | `work-mode-client.js` | `DsWorkMode` 状态机、与 C# `workModeState` 同步 |
 | **`chat-mode-floater.js`** | **仅** 普通对话页右上角 Agent/普通 pill |
-| `overlay.js` | 官网页工具栏、路由监听、Chat2API 嵌入增强 |
+| `overlay.js` | 官网页工具栏、路由监听、DSD API 嵌入增强 |
 | `overlay.css` / `ds-theme.css` | overlay 样式 |
 
 普通页模式按钮 **不要** 再写入 `overlay.js`（避免 React 重绘与体积耦合）。C# 在 `EnsureChatModeFloaterAsync` 中先执行 `MinimalMount`，再加载完整 floater 脚本。

@@ -22,6 +22,28 @@ public static class HarnessLangfuseExporter
         && !string.IsNullOrWhiteSpace(config.AgentLangfusePublicKey)
         && !string.IsNullOrWhiteSpace(config.AgentLangfuseSecretKey);
 
+    public static async Task<bool> PingAsync(AppConfig config, CancellationToken ct = default)
+    {
+        if (!IsConfigured(config))
+            return false;
+
+        var host = NormalizeHost(config.AgentLangfuseHost);
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{host}/api/public/health");
+            req.Headers.Authorization = new AuthenticationHeaderValue(
+                "Basic",
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(
+                    config.AgentLangfusePublicKey + ":" + config.AgentLangfuseSecretKey)));
+            using var resp = await Http.SendAsync(req, ct);
+            return resp.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static string BuildTraceUrl(AppConfig config, string traceId)
     {
         var host = NormalizeHost(config.AgentLangfuseHost);

@@ -46,6 +46,27 @@ public sealed class HarnessSemanticMemoryStore : IDisposable
         cmd.ExecuteNonQuery();
     }
 
+    public IReadOnlyList<HarnessMemoryRecord> ListByScopes(IReadOnlyList<string> scopes, int maxRecords = 500)
+    {
+        if (scopes.Count == 0)
+            return Array.Empty<HarnessMemoryRecord>();
+
+        var scopeFilter = " WHERE scope IN (" + string.Join(",", scopes.Select((_, i) => "$s" + i)) + ")";
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText =
+            "SELECT id, scope, text, embedding, metadata, content_hash, created_at, updated_at FROM memories"
+            + scopeFilter + " ORDER BY updated_at DESC LIMIT $limit;";
+        for (var i = 0; i < scopes.Count; i++)
+            cmd.Parameters.AddWithValue("$s" + i, scopes[i]);
+        cmd.Parameters.AddWithValue("$limit", Math.Clamp(maxRecords, 1, 2000));
+
+        var list = new List<HarnessMemoryRecord>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            list.Add(ReadRecord(reader));
+        return list;
+    }
+
     public IReadOnlyList<HarnessMemoryRecord> Search(
         float[] queryEmbedding,
         IReadOnlyList<string> scopes,

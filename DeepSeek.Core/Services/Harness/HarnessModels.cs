@@ -69,4 +69,7 @@ public sealed class HarnessRunState
 
     /// <summary>生成 CachedIntentJson 时用户 prompt 的指纹。</summary>
     public string? CachedIntentPromptHash { get; set; }
+
+    /// <summary>CachedIntentJson 写入时间（UTC Unix 秒）。</summary>
+    public long CachedIntentSavedAtUnix { get; set; }
 }

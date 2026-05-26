@@ -15,6 +15,8 @@ public static class DeepSeekDesktopApp
     /// <summary>仓库内唯一编译发布目录名（相对仓库根目录）。</summary>
     public const string PublishFolderName = "publish";
     public const string DisplayName = "DeepSeek Desktop";
+    /// <summary>产品缩写（DeepSeek Desktop / DPDT）。</summary>
+    public const string ProductAbbreviation = "DPDT";
     public const string JsLogPrefix = "DeepSeek Desktop";
 
     public const string ConfigDirEnvVar = "DEEPSEEK_DESKTOP_CONFIG_DIR";
@@ -42,8 +44,9 @@ public static class DeepSeekDesktopApp
     /// <summary>设为 1 时启动器跳过运行库检测（开发/CI）。</summary>
     public const string SkipRuntimeCheckEnvVar = "DEEPSEEK_SKIP_RUNTIME_CHECK";
 
-    public const string IntegrationMutexName = @"Global\deepseek_desktop.Chat2ApiTuiIntegration";
-    public const string SingleInstanceMutexName = "DeepSeek.Desktop.SingleInstance";
+    public const string IntegrationMutexName = @"Global\deepseek_desktop.DsdTuiIntegration";
+    public const string SingleInstanceMutexName = @"Global\DeepSeek.Desktop.SingleInstance";
+    public const string SingleInstancePipeName = "DeepSeek.Desktop.SingleInstance.Activate";
     public const string LocalApiKeyFallback = "deepseek-local";
 
     private static bool _migrationChecked;
@@ -68,7 +71,7 @@ public static class DeepSeekDesktopApp
     public static string WebViewUserDataDirectory => Path.Combine(LocalAppDataRoot, "User Data");
 
     public static string IntegrationFilePath =>
-        Path.Combine(LocalAppDataRoot, "chat2api-tui-integration.json");
+        Path.Combine(LocalAppDataRoot, "dsd-tui-integration.json");
 
     public static string ResolveEnv(string primary, string legacy)
     {
