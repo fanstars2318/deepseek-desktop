@@ -1,7 +1,7 @@
-# DeepSeek Desktop v2.2.0
+﻿# DeepSeek Desktop v2.2.0
 
 > Release 说明撰写：**Auto**（Cursor Agent）  
-> 发布维护：**[@fanstars2318](https://github.com/fanstars2318)**
+> 发布维护：**[@guyu23223](https://github.com/guyu23223)**
 
 ---
 
@@ -41,7 +41,7 @@
 | 项目 | 说明 |
 |------|------|
 | 配置与数据 | 仍位于 `%LocalAppData%\deepseek_desktop\` 与 `~/.deepseek/` |
-| Qt 壳 | v2.2.0 **不包含** Qt Hybrid；若你依赖 `DeepSeek.Qt.exe`，请继续使用 [v2.1.0 资产](https://github.com/fanstars2318/deepseek-desktop/releases/tag/v2.1.0) 或自行 `-Qt` 构建（实验性，见 `docs/DD_DESKTOP.md`） |
+| Qt 壳 | v2.2.0 **不包含** Qt Hybrid；若你依赖 `DeepSeek.Qt.exe`，请继续使用 [v2.1.0 资产](https://github.com/guyu23223/deepseek-desktop/releases/tag/v2.1.0) 或自行 `-Qt` 构建（实验性，见 `docs/DD_DESKTOP.md`） |
 | 命名与 IPC | DD 统一命名规范不变，见 [docs/DD_NAMING.md](./docs/DD_NAMING.md) |
 
 ---
@@ -49,7 +49,7 @@
 ## 从源码构建
 
 ```powershell
-git clone https://github.com/fanstars2318/deepseek-desktop.git
+git clone https://github.com/guyu23223/deepseek-desktop.git
 cd deepseek-desktop
 git checkout v2.2.0
 .\build.ps1

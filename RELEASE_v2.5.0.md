@@ -1,7 +1,7 @@
-# DeepSeek Desktop v2.5.0
+﻿# DeepSeek Desktop v2.5.0
 
 > Release 说明撰写：**Auto**（Cursor Agent）  
-> 发布维护：**[@fanstars2318](https://github.com/fanstars2318)**
+> 发布维护：**[@guyu23223](https://github.com/guyu23223)**
 
 ---
 
@@ -64,7 +64,7 @@
 ## 从源码构建
 
 ```powershell
-git clone https://github.com/fanstars2318/deepseek-desktop.git
+git clone https://github.com/guyu23223/deepseek-desktop.git
 cd deepseek-desktop
 git checkout v2.5.0
 .\build.ps1

@@ -1,4 +1,4 @@
-# Publish DeepSeek Desktop source + release zip to GitHub.
+﻿# Publish DeepSeek Desktop source + release zip to GitHub.
 # Requires: git, network to github.com, GitHub CLI (gh) authenticated via `gh auth login`
 param(
     [string]$Version = "2.5.0",
@@ -54,14 +54,14 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     Write-Host ""
     Write-Host "GitHub CLI (gh) not found. Install: winget install GitHub.cli"
     Write-Host "Then: gh auth login"
-    Write-Host "Upload release manually: https://github.com/fanstars2318/deepseek-desktop/releases/new?tag=$Tag"
+    Write-Host "Upload release manually: https://github.com/guyu23223/deepseek-desktop/releases/new?tag=$Tag"
     Write-Host "Asset: $zipPath"
     exit 0
 }
 
 $desc = "DeepSeek Desktop (DD): WPF/Qt Hybrid shell + C# Harness + DSD API + MCP, local workspace sandbox."
 Write-Host "Updating repo description ..."
-gh repo edit fanstars2318/deepseek-desktop --description $desc 2>$null
+gh repo edit guyu23223/deepseek-desktop --description $desc 2>$null
 
 $body = if (Test-Path $releaseNotes) { Get-Content $releaseNotes -Raw } else { "DeepSeek Desktop $Version" }
 
@@ -74,4 +74,4 @@ if ($LASTEXITCODE -eq 0) {
     gh release create $Tag $zipPath --title "DeepSeek Desktop $Version" --notes-file $releaseNotes
 }
 
-Write-Host "Done: https://github.com/fanstars2318/deepseek-desktop/releases/tag/$Tag"
+Write-Host "Done: https://github.com/guyu23223/deepseek-desktop/releases/tag/$Tag"

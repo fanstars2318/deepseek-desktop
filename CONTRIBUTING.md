@@ -1,4 +1,4 @@
-# Contributing to DeepSeek Desktop
+﻿# Contributing to DeepSeek Desktop
 
 Thank you for contributing. This project follows a **layered desktop architecture**; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full picture.
 
@@ -70,4 +70,4 @@ Optional architecture guard (also run in CI-friendly mode):
 
 ## Questions
 
-Open a [GitHub Issue](https://github.com/fanstars2318/deepseek-desktop/issues) for design questions before large refactors.
+Open a [GitHub Issue](https://github.com/guyu23223/deepseek-desktop/issues) for design questions before large refactors.

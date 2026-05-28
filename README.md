@@ -1,13 +1,13 @@
-# DeepSeek Desktop
+﻿# DeepSeek Desktop
 
 Windows 桌面客户端：内嵌 DeepSeek 网页会话、本地 **Agent Harness**、**DSD API**（OpenAI 兼容层）、MCP 工具与工作区沙盒。
 
 | 项目 | 说明 |
 |------|------|
-| **仓库** | [github.com/fanstars2318/deepseek-desktop](https://github.com/fanstars2318/deepseek-desktop) |
-| **维护者** | [@fanstars2318](https://github.com/fanstars2318) |
+| **仓库** | [github.com/guyu23223/deepseek-desktop](https://github.com/guyu23223/deepseek-desktop) |
+| **维护者** | [@guyu23223](https://github.com/guyu23223) |
 | **当前主线** | WPF + WebView2（`build.ps1` 单入口） |
-| **最新发布** | [Releases → v2.5.0](https://github.com/fanstars2318/deepseek-desktop/releases/latest) |
+| **最新发布** | [Releases → v2.5.0](https://github.com/guyu23223/deepseek-desktop/releases/latest) |
 
 > **文档说明**：本 README、`docs/INSTALL.md` 及 `RELEASE_v*.md` 由 **Auto**（Cursor Agent）根据源码与 `DDpublish` 发布包整理撰写。
 
@@ -27,7 +27,7 @@ Windows 桌面客户端：内嵌 DeepSeek 网页会话、本地 **Agent Harness*
 
 ## 快速安装
 
-1. 打开 [Releases](https://github.com/fanstars2318/deepseek-desktop/releases)，下载 **`DeepSeek-Desktop-v2.5.0-win-x64.zip`**。
+1. 打开 [Releases](https://github.com/guyu23223/deepseek-desktop/releases)，下载 **`DeepSeek-Desktop-v2.5.0-win-x64.zip`**。
 2. 解压后运行 **`DeepSeek.exe`**。
 3. 需要时安装 [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) 与 [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)。
 
@@ -40,7 +40,7 @@ Windows 桌面客户端：内嵌 DeepSeek 网页会话、本地 **Agent Harness*
 **环境**：Windows 10/11 x64、.NET 10 SDK、WebView2 Runtime。
 
 ```powershell
-git clone https://github.com/fanstars2318/deepseek-desktop.git
+git clone https://github.com/guyu23223/deepseek-desktop.git
 cd deepseek-desktop
 .\build.ps1
 # 默认发布到 ../DDpublish（见 scripts/Get-DsdPaths.ps1）
@@ -73,5 +73,5 @@ cd deepseek-desktop
 
 ## 贡献与反馈
 
-- 代码与 Release 由 [@fanstars2318](https://github.com/fanstars2318) 维护。
-- 问题反馈：[GitHub Issues](https://github.com/fanstars2318/deepseek-desktop/issues)。
+- 代码与 Release 由 [@guyu23223](https://github.com/guyu23223) 维护。
+- 问题反馈：[GitHub Issues](https://github.com/guyu23223/deepseek-desktop/issues)。

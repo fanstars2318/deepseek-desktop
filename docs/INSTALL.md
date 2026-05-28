@@ -1,6 +1,6 @@
-# DeepSeek Desktop 安装与升级指南
+﻿# DeepSeek Desktop 安装与升级指南
 
-> 撰写：**Auto**（Cursor Agent） · 对应发布：**v2.5.0** · 仓库：[fanstars2318/deepseek-desktop](https://github.com/fanstars2318/deepseek-desktop)
+> 撰写：**Auto**（Cursor Agent） · 对应发布：**v2.5.0** · 仓库：[guyu23223/deepseek-desktop](https://github.com/guyu23223/deepseek-desktop)
 
 ---
 
@@ -18,7 +18,7 @@
 
 ## 2. 从 GitHub Release 安装
 
-1. 打开 [Releases](https://github.com/fanstars2318/deepseek-desktop/releases)。
+1. 打开 [Releases](https://github.com/guyu23223/deepseek-desktop/releases)。
 2. 在最新版本（**v2.5.0**）的 **Assets** 中下载：
    - **`DeepSeek-Desktop-v2.5.0-win-x64.zip`** — WPF 主线 Windows x64 便携包
 3. 将 zip **完整解压**到目标文件夹，例如 `D:\Apps\DeepSeekDesktop\`。
@@ -60,7 +60,7 @@ DeepSeekDesktop/
 ## 5. 从源码安装（开发者）
 
 ```powershell
-git clone https://github.com/fanstars2318/deepseek-desktop.git
+git clone https://github.com/guyu23223/deepseek-desktop.git
 cd deepseek-desktop
 .\build.ps1
 .\publish\DeepSeek.exe
@@ -80,7 +80,7 @@ cd deepseek-desktop
 2. 下载新版本 zip，解压到新文件夹或覆盖旧目录（建议先备份自定义修改）。
 3. 再次运行 `DeepSeek.exe`；配置目录会自动沿用。
 
-跨版本说明见 [Releases](https://github.com/fanstars2318/deepseek-desktop/releases) 中各版本的 Release Notes。
+跨版本说明见 [Releases](https://github.com/guyu23223/deepseek-desktop/releases) 中各版本的 Release Notes。
 
 ---
 
@@ -100,7 +100,7 @@ cd deepseek-desktop
 
 ### SmartScreen 拦截
 
-本软件为社区构建、未代码签名。若你信任维护者 [@fanstars2318](https://github.com/fanstars2318) 与本仓库源码，可在「更多信息」中选择仍要运行；亦可自行 `git clone` 后执行 `.\build.ps1` 本地编译。
+本软件为社区构建、未代码签名。若你信任维护者 [@guyu23223](https://github.com/guyu23223) 与本仓库源码，可在「更多信息」中选择仍要运行；亦可自行 `git clone` 后执行 `.\build.ps1` 本地编译。
 
 ### Agent 或 DSD API 无响应
 
